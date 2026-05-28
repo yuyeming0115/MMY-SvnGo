@@ -418,10 +418,9 @@ class MainWindow(QMainWindow):
             print("[传输] SVN 目录为空，所有本地文件视为新文件")
             transfer_list = [(f, FileStatus.NEW_FILE) for f in local_files]
         else:
-            # 正常对比
+            # 正常对比，显示所有文件（包括相同的）
             result = self.comparator.compare(local_files, svn_files)
-            transfer_list = [(file_info, status) for filename, (file_info, status) in result.items()
-                            if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE)]
+            transfer_list = [(file_info, status) for filename, (file_info, status) in result.items()]
 
         if not transfer_list:
             QMessageBox.information(self, "提示", "没有需要传输的文件（所有文件都已同步）")

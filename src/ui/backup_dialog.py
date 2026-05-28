@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from src.core.backup_manager import BackupManager
+from src.core.history_manager import HistoryManager
 
 
 class BackupWorker(QThread):
@@ -44,9 +45,10 @@ class BackupWorker(QThread):
 class BackupDialog(QDialog):
     """备份对话框"""
 
-    def __init__(self, source_path: Path, parent=None):
+    def __init__(self, source_path: Path, history_manager: HistoryManager = None, parent=None):
         super().__init__(parent)
         self.source_path = source_path
+        self.history_manager = history_manager or HistoryManager()
         self.result_path: Path | None = None
         self.init_ui()
 
@@ -94,11 +96,15 @@ class BackupDialog(QDialog):
 
         layout.addWidget(backup_bar)
 
-        # 默认备份路径（用户文档目录下的 backups）
-        default_backup_dir = Path.home() / "Documents" / "MMY_SvnGo_Backups"
-        default_backup_dir.mkdir(parents=True, exist_ok=True)
-        self.backup_dir = default_backup_dir
-        self.backup_edit.setText(str(default_backup_dir))
+        # 备份路径：优先使用记忆的路径，否则使用默认路径
+        remembered_dir = self.history_manager.get_backup_dir()
+        if remembered_dir and remembered_dir.exists():
+            self.backup_dir = remembered_dir
+        else:
+            default_backup_dir = Path.home() / "Documents" / "MMY_SvnGo_Backups"
+            default_backup_dir.mkdir(parents=True, exist_ok=True)
+            self.backup_dir = default_backup_dir
+        self.backup_edit.setText(str(self.backup_dir))
 
         # 备份文件名预览
         name_bar = QWidget()
@@ -158,6 +164,8 @@ class BackupDialog(QDialog):
         if dir_path:
             self.backup_dir = Path(dir_path)
             self.backup_edit.setText(dir_path)
+            # 记忆备份路径
+            self.history_manager.set_backup_dir(self.backup_dir)
 
     def start_backup(self):
         """开始备份"""

@@ -122,7 +122,7 @@ class FileListPanel(QWidget):
         clear_action = menu.addAction("清空列表")
         clear_action.triggered.connect(self.clear_files)
 
-        menu.exec_(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
+        menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
 
     def load_folder(self, path: Path):
         """加载指定文件夹"""

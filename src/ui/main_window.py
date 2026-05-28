@@ -92,15 +92,9 @@ class MainWindow(QMainWindow):
         self.btn_backup.setMinimumWidth(80)
         top_layout.addWidget(self.btn_backup)
 
-        # 传输预览按钮
-        self.btn_preview_transfer = QPushButton("传输预览")
-        self.btn_preview_transfer.setToolTip("预览即将传输的文件清单")
-        self.btn_preview_transfer.setMinimumWidth(100)
-        top_layout.addWidget(self.btn_preview_transfer)
-
         # 传输按钮
         self.btn_transfer = QPushButton("传输")
-        self.btn_transfer.setToolTip("执行文件复制并提交 SVN")
+        self.btn_transfer.setToolTip("预览并执行文件复制到 SVN 目录")
         self.btn_transfer.setMinimumWidth(80)
         top_layout.addWidget(self.btn_transfer)
 
@@ -172,7 +166,6 @@ class MainWindow(QMainWindow):
         # 按钮点击信号
         self.btn_refresh.clicked.connect(self.on_refresh)
         self.btn_backup.clicked.connect(self.on_backup)
-        self.btn_preview_transfer.clicked.connect(self.on_preview_transfer)
         self.btn_transfer.clicked.connect(self.on_transfer)
         self.btn_favorites.clicked.connect(self.on_favorites)
 
@@ -300,13 +293,13 @@ class MainWindow(QMainWindow):
             return
 
         # 打开备份对话框
-        dialog = BackupDialog(self.svn_panel.current_path, self)
+        dialog = BackupDialog(self.svn_panel.current_path, self.history_manager, self)
         if dialog.exec():
             print(f"[备份] 完成: {dialog.result_path}")
 
-    def on_preview_transfer(self):
-        """传输预览按钮点击"""
-        print("[按钮] 传输预览")
+    def on_transfer(self):
+        """传输按钮点击"""
+        print("[按钮] 传输")
         local_files = self.local_panel.get_file_list()
         svn_files = self.svn_panel.get_file_list()
 
@@ -320,7 +313,7 @@ class MainWindow(QMainWindow):
 
         # 如果 SVN 目录是空的，把所有本地文件视为新文件
         if not svn_files:
-            print("[传输预览] SVN 目录为空，所有本地文件视为新文件")
+            print("[传输] SVN 目录为空，所有本地文件视为新文件")
             transfer_list = [(f, FileStatus.NEW_FILE) for f in local_files]
         else:
             # 正常对比
@@ -342,14 +335,8 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             confirmed_files = dialog.get_confirmed_files()
             commit_msg = dialog.get_commit_message()
-            print(f"[传输预览] 确认传输 {len(confirmed_files)} 个文件")
+            print(f"[传输] 确认传输 {len(confirmed_files)} 个文件")
             self.execute_transfer(confirmed_files, commit_msg)
-
-    def on_transfer(self):
-        """传输按钮点击"""
-        print("[按钮] 传输")
-        # 直接调用传输预览
-        self.on_preview_transfer()
 
     def execute_transfer(self, confirmed_files: list, commit_msg: str):
         """执行传输操作"""

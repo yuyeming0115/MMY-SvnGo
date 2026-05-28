@@ -18,6 +18,7 @@ class HistoryManager:
 
     def __init__(self):
         self.history: List[FolderPair] = []
+        self.backup_dir: Optional[Path] = None  # 记忆的备份路径
         self.load()
 
     def load(self):
@@ -38,12 +39,18 @@ class HistoryManager:
                 )
                 self.history.append(folder_pair)
 
+            # 加载备份路径
+            backup_dir_str = data.get("backup_dir")
+            if backup_dir_str:
+                self.backup_dir = Path(backup_dir_str)
+
             # 按最后使用时间排序（最近的在前）
             self.history.sort(key=lambda x: x.last_used, reverse=True)
 
         except Exception as e:
             print(f"加载历史记录失败: {e}")
             self.history = []
+            self.backup_dir = None
 
     def save(self):
         """保存历史记录到配置文件"""
@@ -58,7 +65,8 @@ class HistoryManager:
                     "last_used": fp.last_used.isoformat(),
                 }
                 for fp in self.history
-            ]
+            ],
+            "backup_dir": str(self.backup_dir) if self.backup_dir else None
         }
 
         with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -109,3 +117,12 @@ class HistoryManager:
             if fp.local_path != local_path or fp.svn_path != svn_path
         ]
         self.save()
+
+    def set_backup_dir(self, backup_dir: Path):
+        """设置备份路径"""
+        self.backup_dir = backup_dir
+        self.save()
+
+    def get_backup_dir(self) -> Optional[Path]:
+        """获取备份路径"""
+        return self.backup_dir

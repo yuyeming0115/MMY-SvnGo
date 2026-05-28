@@ -1,3 +1,4 @@
+
 <!-- MMY-INJECT:START -->
 ## 模型信息（由 MMYCodeSwitch-API 自动管理）
 
@@ -5,9 +6,7 @@
 > 此段内容由 `<!-- MMY-INJECT:START -->` 和 `<!-- MMY-INJECT:END -->` 包裹，
 > 切换供应商或解绑项目时会自动更新，请勿手动编辑此区域。
 
-<!-- MMY-INJECT:END -->
-
-## 开发流程规范
+<!-- MMY-INJECT:END -->## 开发流程规范
 
 ### 需求分级与 PR 判断
 
@@ -69,21 +68,23 @@
 用户确认打包 → 执行以下步骤：
 
 1. **确认版本号一致**（两处）：
-   如不一致，询问用户是否需要更新版本号
+   - `src/main.py` 中的 `setApplicationVersion("0.1.0")`
+   - 如不一致，询问用户是否需要更新版本号
 
 2. **执行打包命令**：
-   - Windows：
-   - macOS：
+   - Windows：`python build.py`
+   - macOS：暂不支持（需另行配置）
 
 3. **复制到发布目录**：
-
+   - 输出位置：`release/v{版本号}/`
+   - 文件名：`MMY_SvnGo_v{版本号}_{时间戳}.exe`
 
 4. **生成 README.txt**（包含版本号、时间戳、文件列表）
 
 ### 发布后提示
 
 告知用户：
-- 发布目录位置
+- 发布目录位置：`release/v{版本号}/`
 - 可用于分发的文件列表
 
 

@@ -1,0 +1,10 @@
+# MMY SvnGo 依赖列表
+
+# GUI 框架
+PyQt6>=6.4.0
+
+# 图片处理
+Pillow>=9.0.0
+
+# 打包工具（开发时使用）
+pyinstaller>=5.0.0

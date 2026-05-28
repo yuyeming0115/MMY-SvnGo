@@ -8,14 +8,18 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QSplitter, QFrame, QMessageBox
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QWindowStateChangeEvent
 
 from src.ui.file_list_panel import FileListPanel
 from src.ui.diff_list_panel import DiffListPanel
 from src.ui.preview_panel import PreviewPanel
+from src.ui.backup_dialog import BackupDialog
+from src.ui.transfer_dialog import TransferPreviewDialog
 from src.core.file_comparator import FileComparator
 from src.core.history_manager import HistoryManager
 from src.core.favorite_manager import FavoriteManager
+from src.core.svn_manager import SVNManager
+from src.models.file_info import FileStatus
 
 
 class MainWindow(QMainWindow):
@@ -26,8 +30,31 @@ class MainWindow(QMainWindow):
         self.comparator = FileComparator()
         self.history_manager = HistoryManager()
         self.favorite_manager = FavoriteManager()
+        self.svn_manager = SVNManager()
+        self._was_minimized = False
         self.init_ui()
         self.load_last_used()
+
+    def changeEvent(self, event):
+        """窗口状态变化事件"""
+        if event.type() == event.Type.WindowStateChange:
+            # 记录是否曾被最小化
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                self._was_minimized = True
+            # 从最小化恢复时刷新
+            elif self._was_minimized and not (self.windowState() & Qt.WindowState.WindowMinimized):
+                print("[窗口] 从最小化恢复，自动刷新")
+                self.on_refresh()
+                self._was_minimized = False
+        super().changeEvent(event)
+
+    def showEvent(self, event):
+        """窗口显示事件 - 从其他应用切回来时触发"""
+        super().showEvent(event)
+        # 窗口重新显示时刷新（切回应用时）
+        if self.local_panel.current_path or self.svn_panel.current_path:
+            print("[窗口] 重新显示，自动刷新")
+            self.on_refresh()
 
     def init_ui(self):
         """初始化 UI"""
@@ -280,25 +307,117 @@ class MainWindow(QMainWindow):
         if not self.svn_panel.current_path:
             QMessageBox.warning(self, "提示", "请先拖入 SVN 目录")
             return
-        QMessageBox.information(self, "提示", f"备份功能开发中...\n目标: {self.svn_panel.current_path}")
+
+        # 打开备份对话框
+        dialog = BackupDialog(self.svn_panel.current_path, self)
+        if dialog.exec():
+            print(f"[备份] 完成: {dialog.result_path}")
 
     def on_preview_transfer(self):
         """传输预览按钮点击"""
         print("[按钮] 传输预览")
         local_files = self.local_panel.get_file_list()
         svn_files = self.svn_panel.get_file_list()
-        if not local_files or not svn_files:
-            QMessageBox.warning(self, "提示", "请先拖入本地和 SVN 目录")
+
+        if not local_files:
+            QMessageBox.warning(self, "提示", "请先拖入本地目录")
             return
-        QMessageBox.information(self, "提示", "传输预览功能开发中...")
+
+        if not self.svn_panel.current_path:
+            QMessageBox.warning(self, "提示", "请先拖入 SVN 目录")
+            return
+
+        # 如果 SVN 目录是空的，把所有本地文件视为新文件
+        if not svn_files:
+            print("[传输预览] SVN 目录为空，所有本地文件视为新文件")
+            transfer_list = [(f, FileStatus.NEW_FILE) for f in local_files]
+        else:
+            # 正常对比
+            result = self.comparator.compare(local_files, svn_files)
+            transfer_list = [(file_info, status) for filename, (file_info, status) in result.items()
+                            if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE)]
+
+        if not transfer_list:
+            QMessageBox.information(self, "提示", "没有需要传输的文件（所有文件都已同步）")
+            return
+
+        # 打开传输预览对话框
+        dialog = TransferPreviewDialog(
+            transfer_list,
+            self.local_panel.current_path,
+            self.svn_panel.current_path,
+            self
+        )
+        if dialog.exec():
+            confirmed_files = dialog.get_confirmed_files()
+            commit_msg = dialog.get_commit_message()
+            print(f"[传输预览] 确认传输 {len(confirmed_files)} 个文件")
+            self.execute_transfer(confirmed_files, commit_msg)
 
     def on_transfer(self):
         """传输按钮点击"""
         print("[按钮] 传输")
-        if not self.local_panel.current_path or not self.svn_panel.current_path:
-            QMessageBox.warning(self, "提示", "请先拖入本地和 SVN 目录")
-            return
-        QMessageBox.information(self, "提示", "传输功能开发中...")
+        # 直接调用传输预览
+        self.on_preview_transfer()
+
+    def execute_transfer(self, confirmed_files: list, commit_msg: str):
+        """执行传输操作"""
+        import shutil
+
+        print(f"[执行传输] 开始复制文件...")
+        print(f"[执行传输] 本地目录: {self.local_panel.current_path}")
+        print(f"[执行传输] SVN目录: {self.svn_panel.current_path}")
+        copied_count = 0
+
+        for file_info, status in confirmed_files:
+            if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE):
+                src_path = file_info.path
+                print(f"[执行传输] 源文件路径: {src_path}")
+
+                # 计算目标路径（保持相对路径结构）
+                try:
+                    rel_path = src_path.relative_to(self.local_panel.current_path)
+                    print(f"[执行传输] 相对路径: {rel_path}")
+                    dst_path = self.svn_panel.current_path / rel_path
+                except ValueError as e:
+                    print(f"[执行传输] 相对路径计算失败: {e}")
+                    # fallback：保持子目录结构
+                    # 找出本地目录名后面的路径部分
+                    path_parts = list(src_path.parts)
+                    local_parts = list(self.local_panel.current_path.parts)
+                    if len(path_parts) > len(local_parts):
+                        # 取本地目录后面的部分
+                        rel_parts = path_parts[len(local_parts):]
+                        dst_path = self.svn_panel.current_path.joinpath(*rel_parts)
+                    else:
+                        dst_path = self.svn_panel.current_path / src_path.name
+
+                print(f"[执行传输] 目标路径: {dst_path}")
+
+                # 确保目标目录存在
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # 复制文件
+                try:
+                    shutil.copy2(src_path, dst_path)
+                    copied_count += 1
+                    print(f"  - 复制成功: {src_path.name} -> {dst_path}")
+                except Exception as e:
+                    print(f"  - 复制失败: {src_path.name} - {e}")
+
+        print(f"[执行传输] 复制完成: {copied_count} 个文件")
+
+        # 提交 SVN
+        if copied_count > 0:
+            QMessageBox.information(
+                self,
+                "传输完成",
+                f"已复制 {copied_count} 个文件到 SVN 目录\n\n请使用 TortoiseSVN 完成提交"
+            )
+            # 提示用户使用 TortoiseSVN 提交
+            self.svn_manager.tortoise_commit(self.svn_panel.current_path, commit_msg)
+            # 传输完成后自动刷新列表
+            self.on_refresh()
 
     def on_favorites(self):
         """收藏夹按钮点击"""

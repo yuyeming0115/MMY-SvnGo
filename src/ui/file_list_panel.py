@@ -1,32 +1,38 @@
 """
-文件列表面板
+文件列表面板 - 支持拖拽、文件扫描、预览信号、历史路径选择
 """
 
 from pathlib import Path
+from re import match
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTableWidget, QHeaderView, QAbstractItemView
+    QTableWidget, QHeaderView, QAbstractItemView, QTableWidgetItem,
+    QLineEdit, QPushButton, QMenu
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QColor, QBrush
+
+from src.core.file_scanner import FileScanner
 
 
 class FileListPanel(QWidget):
     """文件列表面板（支持拖拽）"""
 
-    # 信号：文件夹拖入
     folder_dropped = pyqtSignal(Path)
+    file_selected = pyqtSignal(Path)
 
-    def __init__(self, title: str, side: str):
-        """
-        Args:
-            title: 面板标题
-            side: "local" 或 "svn"
-        """
+    HIGHLIGHT_COLOR = QColor(100, 150, 255, 100)
+
+    def __init__(self, title: str, side: str, history_manager=None):
         super().__init__()
         self.title = title
         self.side = side
         self.current_path: Path | None = None
+        self.file_list: list = []
+        self.scanner = FileScanner()
+        self.history_manager = history_manager
+        self._sync_selecting = False
+        self._last_selected_row = -1
         self.init_ui()
 
     def init_ui(self):
@@ -35,7 +41,7 @@ class FileListPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
 
-        # 标题栏
+        # 标题栏（文件计数放在尾部）
         title_bar = QWidget()
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(0, 0, 0, 0)
@@ -44,113 +50,213 @@ class FileListPanel(QWidget):
         title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         title_layout.addWidget(title_label)
 
-        # 当前路径显示
-        self.path_label = QLabel("拖入文件夹...")
-        self.path_label.setStyleSheet("color: #666; font-size: 11px;")
-        self.path_label.setWordWrap(True)
-        title_layout.addWidget(self.path_label)
-
         title_layout.addStretch()
+
+        # 文件计数（放在标题行尾部）
+        self.count_label = QLabel("0")
+        self.count_label.setStyleSheet("color: #666; font-size: 12px;")
+        title_layout.addWidget(self.count_label)
 
         layout.addWidget(title_bar)
 
+        # 路径选择区域
+        path_bar = QWidget()
+        path_layout = QHBoxLayout(path_bar)
+        path_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("拖入文件夹...")
+        self.path_edit.setStyleSheet("QLineEdit { padding: 2px; background: #f0f0f0; }")
+        self.path_edit.setReadOnly(True)
+        path_layout.addWidget(self.path_edit)
+
+        self.history_btn = QPushButton("▼")
+        self.history_btn.setMaximumWidth(25)
+        self.history_btn.setToolTip("选择历史路径")
+        self.history_btn.clicked.connect(self.show_history_menu)
+        path_layout.addWidget(self.history_btn)
+
+        layout.addWidget(path_bar)
+
         # 文件列表表格
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["文件名", "路径", "修改时间"])
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["文件名", "修改时间"])
 
-        # 设置表头
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(1, 100)
 
-        # 设置选择模式
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(False)
 
-        # 启用拖拽
-        self.table.setAcceptDrops(True)
-        self.table.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
 
         layout.addWidget(self.table)
 
-        # 设置拖拽事件（需要在整个面板上处理）
+        # 底部显示选中文件路径（截取到数字ID层级）
+        self.selected_path_label = QLabel("")
+        self.selected_path_label.setStyleSheet("color: #555; font-size: 11px; background: #e8e8e8; padding: 2px;")
+        self.selected_path_label.setWordWrap(False)
+        layout.addWidget(self.selected_path_label)
+
         self.setAcceptDrops(True)
 
+    def show_history_menu(self):
+        """显示历史路径选择菜单"""
+        menu = QMenu(self)
+
+        if self.history_manager:
+            history = self.history_manager.get_all()
+            for item in history:
+                path = item.local_path if self.side == "local" else item.svn_path
+                if path.exists():
+                    action = menu.addAction(f"📁 {path.name}")
+                    action.setToolTip(str(path))
+                    action.triggered.connect(lambda checked, p=path: self.load_folder(p))
+
+        menu.addSeparator()
+        clear_action = menu.addAction("清空列表")
+        clear_action.triggered.connect(self.clear_files)
+
+        menu.exec_(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
+
+    def load_folder(self, path: Path):
+        """加载指定文件夹"""
+        self.current_path = path
+        self.path_edit.setText(path.name)
+        self.path_edit.setToolTip(str(path))
+        self.scan_and_display(path)
+        self.folder_dropped.emit(path)
+
     def dragEnterEvent(self, event):
-        """拖拽进入事件"""
         if event.mimeData().hasUrls():
-            # 检查是否为文件夹
-            urls = event.mimeData().urls()
-            for url in urls:
-                path = Path(url.toLocalFile())
-                if path.is_dir():
+            for url in event.mimeData().urls():
+                if Path(url.toLocalFile()).is_dir():
                     event.acceptProposedAction()
                     return
         event.ignore()
 
     def dropEvent(self, event):
-        """拖拽放下事件"""
-        urls = event.mimeData().urls()
-        for url in urls:
+        for url in event.mimeData().urls():
             path = Path(url.toLocalFile())
             if path.is_dir():
-                self.current_path = path
-                self.path_label.setText(str(path))
-                self.folder_dropped.emit(path)
+                self.load_folder(path)
                 event.acceptProposedAction()
                 return
         event.ignore()
 
-    def set_files(self, files: list):
-        """设置文件列表"""
-        self.table.setRowCount(len(files))
+    def scan_and_display(self, path: Path):
+        self.file_list = self.scanner.scan_folder(path)
+        self.display_files()
+        self.count_label.setText(str(len(self.file_list)))
+        self.selected_path_label.setText("")
+        self._last_selected_row = -1
 
-        for row, file_info in enumerate(files):
-            # 文件名
-            name_item = self.table.item(row, 0)
-            if name_item is None:
-                name_item = self.create_table_item(file_info.name)
-                self.table.setItem(row, 0, name_item)
-            else:
-                name_item.setText(file_info.name)
+    def display_files(self):
+        self.table.setRowCount(len(self.file_list))
+        for row, file_info in enumerate(self.file_list):
+            name_item = QTableWidgetItem(file_info.name)
+            name_item.setToolTip(str(file_info.path))
+            self.table.setItem(row, 0, name_item)
 
-            # 相对路径
-            rel_path_item = self.table.item(row, 1)
-            rel_path = ""
-            if self.current_path:
-                try:
-                    rel_path = str(file_info.relative_to(self.current_path).parent)
-                    if rel_path == ".":
-                        rel_path = ""
-                except ValueError:
-                    rel_path = str(file_info.parent)
-            if rel_path_item is None:
-                rel_path_item = self.create_table_item(rel_path)
-                self.table.setItem(row, 1, rel_path_item)
-            else:
-                rel_path_item.setText(rel_path)
+            time_str = file_info.modify_time.strftime("%m-%d %H:%M")
+            time_item = QTableWidgetItem(time_str)
+            self.table.setItem(row, 1, time_item)
 
-            # 修改时间
-            time_item = self.table.item(row, 2)
-            time_str = file_info.stat().st_mtime
-            from datetime import datetime
-            time_display = datetime.fromtimestamp(time_str).strftime("%Y-%m-%d %H:%M:%S")
-            if time_item is None:
-                time_item = self.create_table_item(time_display)
-                self.table.setItem(row, 2, time_item)
-            else:
-                time_item.setText(time_display)
+    def get_display_path(self, file_path: Path) -> str:
+        """获取显示路径，从数字ID层级开始"""
+        parts = list(file_path.parts)
+        # 从前往后找数字ID层级（如503080）
+        start_index = 0
+        for i, part in enumerate(parts):
+            # 检查是否是数字ID（纯数字，5-6位）
+            if match(r'^\d{5,6}$', part):
+                start_index = i
+                break
+        # 从数字ID开始截取路径
+        result_parts = parts[start_index:]
+        return '/'.join(result_parts) if result_parts else file_path.name
 
-    def create_table_item(self, text: str):
-        """创建表格项"""
-        from PyQt6.QtWidgets import QTableWidgetItem
-        item = QTableWidgetItem(text)
-        return item
+    def highlight_row(self, row: int):
+        """高亮选中行"""
+        for col in range(self.table.columnCount()):
+            item = self.table.item(row, col)
+            if item:
+                item.setBackground(QBrush(self.HIGHLIGHT_COLOR))
+
+    def clear_highlight(self):
+        """清除高亮"""
+        for row in range(self.table.rowCount()):
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                if item:
+                    item.setBackground(QBrush(QColor(255, 255, 255)))
+
+    def on_selection_changed(self):
+        """选中变化时"""
+        if self._sync_selecting:
+            return
+        selected = self.table.selectedItems()
+        if selected:
+            row = selected[0].row()
+            if row < len(self.file_list) and row != self._last_selected_row:
+                self._last_selected_row = row
+                self.clear_highlight()
+                self.highlight_row(row)
+                # 更新底部路径显示
+                display_path = self.get_display_path(self.file_list[row].path)
+                self.selected_path_label.setText(display_path)
+                # 立即发送信号（不延迟，让同步更及时）
+                self.file_selected.emit(self.file_list[row].path)
+
+    def select_file_by_name(self, filename: str):
+        """根据文件名选中（不触发同步信号）"""
+        for row, file_info in enumerate(self.file_list):
+            if file_info.name == filename:
+                self._sync_selecting = True
+                self._last_selected_row = row
+                self.table.selectRow(row)
+                self.clear_highlight()
+                self.highlight_row(row)
+                # 更新底部路径显示
+                display_path = self.get_display_path(file_info.path)
+                self.selected_path_label.setText(display_path)
+                self._sync_selecting = False
+                self.scrollToRow(row)
+                return
+
+    def scrollToRow(self, row: int):
+        """滚动到指定行（居中显示）"""
+        item = self.table.item(row, 0)
+        if item:
+            self.table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+
+    def scrollToSelectedRow(self):
+        """滚动到当前选中行（居中显示）"""
+        selected = self.table.selectedItems()
+        if selected:
+            row = selected[0].row()
+            self.scrollToRow(row)
+
+    def get_file_path_by_name(self, filename: str) -> Path | None:
+        for file_info in self.file_list:
+            if file_info.name == filename:
+                return file_info.path
+        return None
+
+    def get_file_list(self) -> list:
+        return self.file_list
 
     def clear_files(self):
-        """清空文件列表"""
         self.table.setRowCount(0)
+        self.file_list = []
+        self.current_path = None
+        self.path_edit.setText("")
+        self.path_edit.setToolTip("")
+        self.count_label.setText("0")
+        self.selected_path_label.setText("")
+        self._last_selected_row = -1

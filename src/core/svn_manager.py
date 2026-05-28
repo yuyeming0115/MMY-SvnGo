@@ -29,16 +29,20 @@ class SVNManager:
         except Exception:
             return False
 
-    def update(self, path: Path) -> bool:
+    def update(self, path: Path, silent: bool = False) -> bool:
         """执行 SVN 更新
 
         Args:
             path: SVN 目录路径
+            silent: 是否静默执行（后台执行，不弹窗）
 
         Returns:
             是否成功
         """
-        if self.tortoise_available:
+        if silent:
+            # 静默模式：使用命令行后台执行
+            return self.command_update(path)
+        elif self.tortoise_available:
             # 使用 TortoiseSVN（弹出 GUI）
             return self.tortoise_update(path)
         else:

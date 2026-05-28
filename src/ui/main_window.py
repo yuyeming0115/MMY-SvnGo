@@ -49,10 +49,10 @@ class MainWindow(QMainWindow):
         if state == Qt.ApplicationState.ApplicationActive:
             if self._was_inactive and (self.local_panel.current_path or self.svn_panel.current_path):
                 print("[窗口] 从其他应用切回来，自动刷新")
-                # SVN 模式下执行 SVN 更新
+                # SVN 模式下执行 SVN 更新（静默执行，不弹窗）
                 if self.svn_mode and self.svn_panel.current_path:
-                    print("[SVN模式] 执行 SVN 更新")
-                    self.svn_manager.update(self.svn_panel.current_path)
+                    print("[SVN模式] 执行 SVN 更新（后台）")
+                    self.svn_manager.update(self.svn_panel.current_path, silent=True)
                 self.on_refresh()
             self._was_inactive = False
         elif state == Qt.ApplicationState.ApplicationInactive:

@@ -44,15 +44,22 @@ class BackupManager:
 
         # 创建压缩包
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            # 提取 ID 作为压缩包内的父级文件夹名
+            # 例如：source_path.name = "502032_20260528_183410" -> ID = "502032"
+            import re
+            id_match = re.match(r'^(\d+)', source_path.name)
+            parent_folder = id_match.group(1) if id_match else source_path.name
+
             for root, dirs, files in source_path.walk():
                 # 过滤 .svn 目录
                 dirs[:] = [d for d in dirs if d != ".svn"]
 
                 for file in files:
                     file_path = root / file
-                    # 计算相对路径
+                    # 计算相对路径，并添加父级 ID 文件夹
                     rel_path = file_path.relative_to(source_path)
-                    zf.write(file_path, rel_path)
+                    zip_path_inside = Path(parent_folder) / rel_path
+                    zf.write(file_path, zip_path_inside)
 
         return zip_path
 

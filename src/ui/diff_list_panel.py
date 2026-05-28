@@ -59,15 +59,16 @@ class DiffListPanel(QWidget):
         layout.addWidget(self.list_widget)
 
     def on_row_changed(self, row: int):
-        """选中行变化时，延迟发送信号"""
+        """选中行变化时，立即发送信号（不延迟，实现快速切换预览效果）"""
         if self._sync_selecting:
             return
         if row >= 0 and row < len(self.file_names) and row != self._last_row:
             self._last_row = row
-            QTimer.singleShot(50, lambda: self._emit_selection(row))
+            # 立即发送信号（让预览同步更及时，实现动画效果）
+            self.file_selected.emit(self.file_names[row])
 
     def _emit_selection(self, row: int):
-        """延迟发送选中信号"""
+        """延迟发送选中信号（保留兼容）"""
         if row >= 0 and row < len(self.file_names) and row == self._last_row:
             self.file_selected.emit(self.file_names[row])
 

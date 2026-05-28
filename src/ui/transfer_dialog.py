@@ -105,17 +105,18 @@ class TransferPreviewDialog(QDialog):
         table_layout.addWidget(table_label)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["确认", "文件名", "状态", "操作"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["确认", "本地文件", "SVN文件", "状态", "操作"])
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 50)
-        self.table.setColumnWidth(2, 80)
-        self.table.setColumnWidth(3, 80)
+        self.table.setColumnWidth(3, 70)
+        self.table.setColumnWidth(4, 60)
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -180,10 +181,25 @@ class TransferPreviewDialog(QDialog):
                 check_item.setCheckState(Qt.CheckState.Unchecked)
             self.table.setItem(row, 0, check_item)
 
-            # 文件名
-            name_item = QTableWidgetItem(file_info.name)
-            name_item.setToolTip(str(file_info.path))
-            self.table.setItem(row, 1, name_item)
+            # 本地文件名（绿色背景）
+            local_item = QTableWidgetItem(file_info.name)
+            local_item.setToolTip(str(file_info.path))
+            local_item.setBackground(QBrush(QColor(230, 244, 230)))  # 浅绿色
+            self.table.setItem(row, 1, local_item)
+
+            # SVN文件名（根据状态显示）
+            if status == FileStatus.NEW_FILE:
+                svn_text = "(不存在)"
+                svn_item = QTableWidgetItem(svn_text)
+                svn_item.setForeground(QBrush(QColor(150, 150, 150)))  # 灰色
+            elif status == FileStatus.MODIFIED:
+                svn_text = file_info.name  # SVN有同名文件
+                svn_item = QTableWidgetItem(svn_text)
+                svn_item.setBackground(QBrush(QColor(244, 230, 230)))  # 浅红色
+            else:
+                svn_text = file_info.name
+                svn_item = QTableWidgetItem(svn_text)
+            self.table.setItem(row, 2, svn_item)
 
             # 状态
             status_text = {
@@ -197,12 +213,12 @@ class TransferPreviewDialog(QDialog):
             color = self.STATUS_COLORS.get(status)
             if color:
                 status_item.setBackground(QBrush(color))
-            self.table.setItem(row, 2, status_item)
+            self.table.setItem(row, 3, status_item)
 
             # 操作
             action_text = "复制" if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE) else "跳过"
             action_item = QTableWidgetItem(action_text)
-            self.table.setItem(row, 3, action_item)
+            self.table.setItem(row, 4, action_item)
 
     def generate_commit_message(self) -> str:
         """自动生成提交信息"""

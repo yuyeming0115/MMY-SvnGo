@@ -5,10 +5,10 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSplitter, QFrame, QMessageBox
+    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QIcon, QWindowStateChangeEvent
+from PyQt6.QtGui import QIcon
 
 from src.ui.file_list_panel import FileListPanel
 from src.ui.diff_list_panel import DiffListPanel
@@ -31,30 +31,21 @@ class MainWindow(QMainWindow):
         self.history_manager = HistoryManager()
         self.favorite_manager = FavoriteManager()
         self.svn_manager = SVNManager()
-        self._was_minimized = False
+        self._was_inactive = False
         self.init_ui()
         self.load_last_used()
+        # 监听应用激活状态变化
+        QApplication.instance().applicationStateChanged.connect(self.on_app_state_changed)
 
-    def changeEvent(self, event):
-        """窗口状态变化事件"""
-        if event.type() == event.Type.WindowStateChange:
-            # 记录是否曾被最小化
-            if self.windowState() & Qt.WindowState.WindowMinimized:
-                self._was_minimized = True
-            # 从最小化恢复时刷新
-            elif self._was_minimized and not (self.windowState() & Qt.WindowState.WindowMinimized):
-                print("[窗口] 从最小化恢复，自动刷新")
+    def on_app_state_changed(self, state):
+        """应用状态变化时刷新"""
+        if state == Qt.ApplicationState.ApplicationActive:
+            if self._was_inactive and (self.local_panel.current_path or self.svn_panel.current_path):
+                print("[窗口] 从其他应用切回来，自动刷新")
                 self.on_refresh()
-                self._was_minimized = False
-        super().changeEvent(event)
-
-    def showEvent(self, event):
-        """窗口显示事件 - 从其他应用切回来时触发"""
-        super().showEvent(event)
-        # 窗口重新显示时刷新（切回应用时）
-        if self.local_panel.current_path or self.svn_panel.current_path:
-            print("[窗口] 重新显示，自动刷新")
-            self.on_refresh()
+            self._was_inactive = False
+        elif state == Qt.ApplicationState.ApplicationInactive:
+            self._was_inactive = True
 
     def init_ui(self):
         """初始化 UI"""

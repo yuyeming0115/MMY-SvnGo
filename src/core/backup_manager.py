@@ -25,7 +25,7 @@ class BackupManager:
 
         Args:
             source_path: 要备份的目录
-            custom_name: 自定义名称（可选）
+            custom_name: 自定义名称（可选，不含 .zip 扩展名）
 
         Returns:
             压缩包路径
@@ -33,11 +33,11 @@ class BackupManager:
         if not source_path.exists() or not source_path.is_dir():
             raise ValueError(f"源路径不存在或不是目录: {source_path}")
 
-        # 生成备份文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 生成备份文件名（custom_name 已包含时间戳，直接使用）
         if custom_name:
-            zip_name = f"{custom_name}_{timestamp}.zip"
+            zip_name = f"{custom_name}.zip"
         else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             zip_name = f"{source_path.name}_{timestamp}.zip"
 
         zip_path = self.backup_dir / zip_name

@@ -31,6 +31,7 @@ class TransferPreviewDialog(QDialog):
         self.svn_path = svn_path
         self.initial_commit_msg = initial_commit_msg
         self.confirmed_files: list = []
+        self.folder_items = {}  # 用于存储子文件夹节点数据
         self.init_ui()
 
     def init_ui(self):
@@ -154,9 +155,6 @@ class TransferPreviewDialog(QDialog):
         btn_layout.addWidget(self.transfer_btn)
 
         layout.addWidget(btn_bar)
-
-        # 用于存储子文件夹节点数据
-        self.folder_items = {}  # folder_name -> (folder_item, files_list)
 
     def populate_tree(self):
         """按子文件夹分组填充树形列表"""

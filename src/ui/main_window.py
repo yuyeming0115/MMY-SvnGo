@@ -5,7 +5,7 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication, QMenu, QFileDialog
+    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication, QMenu, QFileDialog, QLineEdit
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
@@ -49,6 +49,10 @@ class MainWindow(QMainWindow):
         if state == Qt.ApplicationState.ApplicationActive:
             if self._was_inactive and (self.local_panel.current_path or self.svn_panel.current_path):
                 print("[窗口] 从其他应用切回来，自动刷新")
+                # SVN 模式下执行 SVN 更新
+                if self.svn_mode and self.svn_panel.current_path:
+                    print("[SVN模式] 执行 SVN 更新")
+                    self.svn_manager.update(self.svn_panel.current_path)
                 self.on_refresh()
             self._was_inactive = False
         elif state == Qt.ApplicationState.ApplicationInactive:
@@ -143,6 +147,21 @@ class MainWindow(QMainWindow):
         top_layout.addStretch()
 
         parent_layout.addWidget(top_bar)
+
+        # 更新信息输入区域
+        info_bar = QWidget()
+        info_layout = QHBoxLayout(info_bar)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+
+        info_label = QLabel("更新说明：")
+        info_layout.addWidget(info_label)
+
+        self.update_info_edit = QLineEdit()
+        self.update_info_edit.setPlaceholderText("输入本次更新的说明（传输时自动填充到 SVN 提交信息）")
+        self.update_info_edit.setStyleSheet("QLineEdit { padding: 3px; }")
+        info_layout.addWidget(self.update_info_edit)
+
+        parent_layout.addWidget(info_bar)
 
     def create_list_area(self, parent_layout: QVBoxLayout):
         """创建列表对比区域"""
@@ -408,11 +427,13 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "没有需要传输的文件（所有文件都已同步）")
             return
 
-        # 打开传输预览对话框
+        # 打开传输预览对话框（传递更新信息）
+        update_info = self.update_info_edit.text().strip()
         dialog = TransferPreviewDialog(
             transfer_list,
             self.local_panel.current_path,
             self.svn_panel.current_path,
+            update_info,  # 初始提交信息
             self
         )
         if dialog.exec():

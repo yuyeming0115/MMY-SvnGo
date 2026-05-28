@@ -25,11 +25,12 @@ class TransferPreviewDialog(QDialog):
         FileStatus.SAME: QColor(100, 200, 100),
     }
 
-    def __init__(self, transfer_list: list, local_path: Path, svn_path: Path, parent=None):
+    def __init__(self, transfer_list: list, local_path: Path, svn_path: Path, initial_commit_msg: str = "", parent=None):
         super().__init__(parent)
         self.transfer_list = transfer_list
         self.local_path = local_path
         self.svn_path = svn_path
+        self.initial_commit_msg = initial_commit_msg
         self.confirmed_files: list = []
         self.init_ui()
 
@@ -136,7 +137,7 @@ class TransferPreviewDialog(QDialog):
         self.commit_edit = QTextEdit()
         self.commit_edit.setPlaceholderText("输入提交说明...")
         self.commit_edit.setMaximumHeight(120)
-        self.commit_edit.setText(self.generate_commit_message())
+        self.commit_edit.setText(self.initial_commit_msg if self.initial_commit_msg else self.generate_commit_message())
         commit_layout.addWidget(self.commit_edit)
 
         splitter.addWidget(commit_widget)

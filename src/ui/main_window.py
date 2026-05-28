@@ -5,7 +5,7 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication, QMenu
+    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication, QMenu, QFileDialog
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
@@ -32,6 +32,13 @@ class MainWindow(QMainWindow):
         self.favorite_manager = FavoriteManager()
         self.svn_manager = SVNManager()
         self._was_inactive = False
+        # SVN 模式相关属性
+        self.svn_mode = False  # 当前模式（False=常规，True=SVN）
+        self.svn_parent_path: Path | None = None  # SVN 父级目录
+        # 加载保存的 SVN 父级目录
+        saved_svn_parent = self.history_manager.get_svn_parent_dir()
+        if saved_svn_parent and saved_svn_parent.exists():
+            self.svn_parent_path = saved_svn_parent
         self.init_ui()
         self.load_last_used()
         # 监听应用激活状态变化
@@ -100,6 +107,17 @@ class MainWindow(QMainWindow):
 
         # 分隔
         top_layout.addSpacing(20)
+
+        # 模式切换按钮
+        self.btn_mode = QPushButton("SVN模式")
+        self.btn_mode.setCheckable(True)
+        self.btn_mode.setToolTip("切换 SVN 模式/常规模式\nSVN模式：左侧拖入后右侧自动处理")
+        self.btn_mode.setMinimumWidth(90)
+        self.btn_mode.clicked.connect(self.toggle_mode)
+        top_layout.addWidget(self.btn_mode)
+
+        # 分隔
+        top_layout.addSpacing(10)
 
         # 收藏夹按钮（带下拉三角）
         favorites_widget = QWidget()
@@ -241,9 +259,29 @@ class MainWindow(QMainWindow):
     def on_local_folder_dropped(self, path: Path):
         """本地文件夹拖入"""
         print(f"[本地] 拖入: {path}")
-        if self.svn_panel.current_path:
+
+        if self.svn_mode and self.svn_parent_path:
+            # SVN 模式：自动处理右侧
+            folder_name = path.name
+            svn_target = self.svn_parent_path / folder_name
+
+            if svn_target.exists() and svn_target.is_dir():
+                # 同名文件夹存在，直接进入
+                print(f"[SVN模式] 找到同名文件夹: {svn_target}")
+                self.svn_panel.load_folder(svn_target)
+            else:
+                # 同名文件夹不存在，自动新建
+                svn_target.mkdir(parents=True, exist_ok=True)
+                print(f"[SVN模式] 新建文件夹: {svn_target}")
+                self.svn_panel.load_folder(svn_target)
+
             self.update_diff_list()
             self.save_history()
+        else:
+            # 常规模式：需要手动拖入右侧
+            if self.svn_panel.current_path:
+                self.update_diff_list()
+                self.save_history()
 
     def on_svn_folder_dropped(self, path: Path):
         """SVN 文件夹拖入"""
@@ -288,6 +326,33 @@ class MainWindow(QMainWindow):
             print(f"[历史] 已保存: {self.local_panel.current_path.name} <-> {self.svn_panel.current_path.name}")
 
     # === 按钮事件处理 ===
+
+    def toggle_mode(self):
+        """切换 SVN 模式/常规模式"""
+        self.svn_mode = self.btn_mode.isChecked()
+        if self.svn_mode:
+            self.btn_mode.setText("常规模式")
+            self.btn_mode.setStyleSheet("QPushButton { background: #4a90d9; color: white; }")
+            print("[模式] 切换到 SVN 模式")
+            if not self.svn_parent_path:
+                QMessageBox.information(self, "提示", "SVN 模式已启用\n请在收藏夹下拉菜单中设置 SVN 父级目录")
+        else:
+            self.btn_mode.setText("SVN模式")
+            self.btn_mode.setStyleSheet("")
+            print("[模式] 切换到常规模式")
+
+    def set_svn_parent_path(self):
+        """设置 SVN 父级目录"""
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "选择 SVN 父级目录",
+            str(self.svn_parent_path or Path.home())
+        )
+        if dir_path:
+            self.svn_parent_path = Path(dir_path)
+            self.history_manager.set_svn_parent_dir(self.svn_parent_path)
+            print(f"[SVN] 父级目录设置为: {self.svn_parent_path}")
+            QMessageBox.information(self, "设置成功", f"SVN 父级目录已设置为:\n{self.svn_parent_path}")
 
     def on_refresh(self):
         """手动更新按钮点击"""
@@ -429,9 +494,27 @@ class MainWindow(QMainWindow):
         """显示收藏夹/历史路径选择菜单"""
         menu = QMenu(self)
 
+        # SVN 模式设置（在顶部显示）
+        if self.svn_mode:
+            svn_header = menu.addAction("── SVN 模式设置 ──")
+            svn_header.setEnabled(False)
+
+            svn_parent_action = menu.addAction("设置 SVN 父级目录")
+            svn_parent_action.triggered.connect(self.set_svn_parent_path)
+
+            if self.svn_parent_path:
+                current_action = menu.addAction(f"当前: {self.svn_parent_path.name}")
+                current_action.setToolTip(str(self.svn_parent_path))
+                current_action.setEnabled(False)
+
+            menu.addSeparator()
+
         # 添加历史路径对
         history = self.history_manager.get_all()
         if history:
+            history_header = menu.addAction("── 历史路径对 ──")
+            history_header.setEnabled(False)
+
             for item in history:
                 local_exists = "✓" if item.local_path.exists() else "✗"
                 svn_exists = "✓" if item.svn_path.exists() else "✗"

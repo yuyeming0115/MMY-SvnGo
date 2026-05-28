@@ -19,6 +19,7 @@ class HistoryManager:
     def __init__(self):
         self.history: List[FolderPair] = []
         self.backup_dir: Optional[Path] = None  # 记忆的备份路径
+        self.svn_parent_dir: Optional[Path] = None  # SVN 模式父级目录
         self.load()
 
     def load(self):
@@ -44,6 +45,11 @@ class HistoryManager:
             if backup_dir_str:
                 self.backup_dir = Path(backup_dir_str)
 
+            # 加载 SVN 父级目录
+            svn_parent_str = data.get("svn_parent_dir")
+            if svn_parent_str:
+                self.svn_parent_dir = Path(svn_parent_str)
+
             # 按最后使用时间排序（最近的在前）
             self.history.sort(key=lambda x: x.last_used, reverse=True)
 
@@ -51,6 +57,7 @@ class HistoryManager:
             print(f"加载历史记录失败: {e}")
             self.history = []
             self.backup_dir = None
+            self.svn_parent_dir = None
 
     def save(self):
         """保存历史记录到配置文件"""
@@ -66,7 +73,8 @@ class HistoryManager:
                 }
                 for fp in self.history
             ],
-            "backup_dir": str(self.backup_dir) if self.backup_dir else None
+            "backup_dir": str(self.backup_dir) if self.backup_dir else None,
+            "svn_parent_dir": str(self.svn_parent_dir) if self.svn_parent_dir else None
         }
 
         with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -126,3 +134,12 @@ class HistoryManager:
     def get_backup_dir(self) -> Optional[Path]:
         """获取备份路径"""
         return self.backup_dir
+
+    def set_svn_parent_dir(self, svn_parent_dir: Path):
+        """设置 SVN 父级目录"""
+        self.svn_parent_dir = svn_parent_dir
+        self.save()
+
+    def get_svn_parent_dir(self) -> Optional[Path]:
+        """获取 SVN 父级目录"""
+        return self.svn_parent_dir

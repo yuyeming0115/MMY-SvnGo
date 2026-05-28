@@ -63,7 +63,7 @@ class FileScanner:
 
                 file_path = Path(root) / filename
                 try:
-                    file_info = self.get_file_info(file_path)
+                    file_info = self.get_file_info(file_path, folder_path)
                     files.append(file_info)
                 except Exception as e:
                     # 跳过无法访问的文件
@@ -72,9 +72,23 @@ class FileScanner:
 
         return files
 
-    def get_file_info(self, file_path: Path) -> FileInfo:
-        """获取单个文件的信息"""
+    def get_file_info(self, file_path: Path, root_path: Path = None) -> FileInfo:
+        """获取单个文件的信息
+
+        Args:
+            file_path: 文件路径
+            root_path: 扫描根目录（用于计算相对路径）
+        """
         stat = file_path.stat()
+
+        # 计算相对路径
+        relative_path = ""
+        if root_path:
+            try:
+                rel = file_path.relative_to(root_path)
+                relative_path = str(rel)
+            except ValueError:
+                relative_path = file_path.name
 
         # 基本信息
         file_info = FileInfo(
@@ -82,6 +96,7 @@ class FileScanner:
             name=file_path.name,
             size=stat.st_size,
             modify_time=datetime.fromtimestamp(stat.st_mtime),
+            relative_path=relative_path,
         )
 
         # 判断是否为图片

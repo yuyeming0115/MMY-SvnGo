@@ -24,6 +24,7 @@ class FileInfo:
     name: str                  # 文件名
     size: int                  # 文件大小（字节）
     modify_time: datetime      # 修改时间
+    relative_path: str = ""    # 相对于扫描根目录的路径（用于同步匹配）
     width: int = 0             # 图片宽度（像素）
     height: int = 0            # 图片高度（像素）
     is_image: bool = False     # 是否为图片文件

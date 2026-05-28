@@ -19,7 +19,8 @@ class FileListPanel(QWidget):
     """文件列表面板（支持拖拽）"""
 
     folder_dropped = pyqtSignal(Path)
-    file_selected = pyqtSignal(Path)
+    file_selected = pyqtSignal(Path)  # 发送完整路径
+    file_selected_relative = pyqtSignal(str)  # 发送相对路径（用于同步）
 
     HIGHLIGHT_COLOR = QColor(100, 150, 255, 100)
 
@@ -59,7 +60,7 @@ class FileListPanel(QWidget):
 
         layout.addWidget(title_bar)
 
-        # 路径选择区域
+        # 路径选择区域（移除下拉按钮）
         path_bar = QWidget()
         path_layout = QHBoxLayout(path_bar)
         path_layout.setContentsMargins(0, 0, 0, 0)
@@ -70,11 +71,8 @@ class FileListPanel(QWidget):
         self.path_edit.setReadOnly(True)
         path_layout.addWidget(self.path_edit)
 
-        self.history_btn = QPushButton("▼")
-        self.history_btn.setMaximumWidth(25)
-        self.history_btn.setToolTip("选择历史路径")
-        self.history_btn.clicked.connect(self.show_history_menu)
-        path_layout.addWidget(self.history_btn)
+        # 不再显示下拉按钮（由收藏夹统一控制）
+        self.history_btn = None
 
         layout.addWidget(path_bar)
 
@@ -207,16 +205,24 @@ class FileListPanel(QWidget):
                 self._last_selected_row = row
                 self.clear_highlight()
                 self.highlight_row(row)
+                file_info = self.file_list[row]
                 # 更新底部路径显示
-                display_path = self.get_display_path(self.file_list[row].path)
+                display_path = self.get_display_path(file_info.path)
                 self.selected_path_label.setText(display_path)
-                # 立即发送信号（不延迟，让同步更及时）
-                self.file_selected.emit(self.file_list[row].path)
+                # 发送完整路径信号（用于预览）
+                self.file_selected.emit(file_info.path)
+                # 发送相对路径信号（用于同步匹配）
+                self.file_selected_relative.emit(file_info.relative_path)
 
     def select_file_by_name(self, filename: str):
-        """根据文件名选中（不触发同步信号）"""
+        """根据文件名选中（不触发同步信号）- 兼容旧接口"""
+        self.select_by_relative_path(filename)
+
+    def select_by_relative_path(self, relative_path: str):
+        """根据相对路径选中（不触发同步信号）"""
         for row, file_info in enumerate(self.file_list):
-            if file_info.name == filename:
+            # 先尝试相对路径匹配，再尝试文件名匹配（兼容）
+            if file_info.relative_path == relative_path or file_info.name == relative_path:
                 self._sync_selecting = True
                 self._last_selected_row = row
                 self.table.selectRow(row)
@@ -228,6 +234,13 @@ class FileListPanel(QWidget):
                 self._sync_selecting = False
                 self.scrollToRow(row)
                 return
+
+    def get_file_path_by_relative(self, relative_path: str) -> Path | None:
+        """根据相对路径获取完整路径"""
+        for file_info in self.file_list:
+            if file_info.relative_path == relative_path or file_info.name == relative_path:
+                return file_info.path
+        return None
 
     def scrollToRow(self, row: int):
         """滚动到指定行（居中显示）"""
@@ -243,10 +256,8 @@ class FileListPanel(QWidget):
             self.scrollToRow(row)
 
     def get_file_path_by_name(self, filename: str) -> Path | None:
-        for file_info in self.file_list:
-            if file_info.name == filename:
-                return file_info.path
-        return None
+        """根据文件名获取完整路径（兼容旧接口）"""
+        return self.get_file_path_by_relative(filename)
 
     def get_file_list(self) -> list:
         return self.file_list

@@ -5,7 +5,7 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication
+    QPushButton, QLabel, QSplitter, QFrame, QMessageBox, QApplication, QMenu
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
@@ -101,11 +101,24 @@ class MainWindow(QMainWindow):
         # 分隔
         top_layout.addSpacing(20)
 
-        # 收藏夹按钮
+        # 收藏夹按钮（带下拉三角）
+        favorites_widget = QWidget()
+        favorites_layout = QHBoxLayout(favorites_widget)
+        favorites_layout.setContentsMargins(0, 0, 0, 0)
+        favorites_layout.setSpacing(0)
+
         self.btn_favorites = QPushButton("收藏夹")
         self.btn_favorites.setToolTip("预设和历史目录")
         self.btn_favorites.setMinimumWidth(80)
-        top_layout.addWidget(self.btn_favorites)
+        favorites_layout.addWidget(self.btn_favorites)
+
+        self.btn_favorites_menu = QPushButton("▼")
+        self.btn_favorites_menu.setMaximumWidth(25)
+        self.btn_favorites_menu.setToolTip("选择历史路径对")
+        self.btn_favorites_menu.clicked.connect(self.show_favorites_menu)
+        favorites_layout.addWidget(self.btn_favorites_menu)
+
+        top_layout.addWidget(favorites_widget)
 
         top_layout.addStretch()
 
@@ -158,9 +171,11 @@ class MainWindow(QMainWindow):
         self.local_panel.folder_dropped.connect(self.on_local_folder_dropped)
         self.svn_panel.folder_dropped.connect(self.on_svn_folder_dropped)
 
-        # 文件选中信号（三列同步）
+        # 文件选中信号（使用相对路径同步）
         self.local_panel.file_selected.connect(self.on_local_file_selected)
+        self.local_panel.file_selected_relative.connect(self.on_local_file_relative)
         self.svn_panel.file_selected.connect(self.on_svn_file_selected)
+        self.svn_panel.file_selected_relative.connect(self.on_svn_file_relative)
         self.diff_panel.file_selected.connect(self.on_diff_file_selected)
 
         # 按钮点击信号
@@ -184,37 +199,38 @@ class MainWindow(QMainWindow):
     # === 文件选中同步处理 ===
 
     def on_local_file_selected(self, path: Path):
-        """本地文件选中时，同步三列并更新预览"""
-        filename = path.name
+        """本地文件选中时，更新预览（完整路径）"""
         self.local_preview.load_image(path)
-        self.svn_panel.select_file_by_name(filename)
-        self.diff_panel.select_by_filename(filename)
-        # 让本地列也滚动到居中
+
+    def on_local_file_relative(self, relative_path: str):
+        """本地文件选中时，同步其他列（使用相对路径）"""
+        self.svn_panel.select_by_relative_path(relative_path)
+        self.diff_panel.select_by_filename(relative_path)
         self.local_panel.scrollToSelectedRow()
-        svn_path = self.svn_panel.get_file_path_by_name(filename)
+        svn_path = self.svn_panel.get_file_path_by_relative(relative_path)
         if svn_path:
             self.svn_preview.load_image(svn_path)
 
     def on_svn_file_selected(self, path: Path):
-        """SVN 文件选中时，同步三列并更新预览"""
-        filename = path.name
+        """SVN 文件选中时，更新预览（完整路径）"""
         self.svn_preview.load_image(path)
-        self.local_panel.select_file_by_name(filename)
-        self.diff_panel.select_by_filename(filename)
-        # 让SVN列也滚动到居中
+
+    def on_svn_file_relative(self, relative_path: str):
+        """SVN 文件选中时，同步其他列（使用相对路径）"""
+        self.local_panel.select_by_relative_path(relative_path)
+        self.diff_panel.select_by_filename(relative_path)
         self.svn_panel.scrollToSelectedRow()
-        local_path = self.local_panel.get_file_path_by_name(filename)
+        local_path = self.local_panel.get_file_path_by_relative(relative_path)
         if local_path:
             self.local_preview.load_image(local_path)
 
     def on_diff_file_selected(self, filename: str):
         """中间列选中时，同步左右两列并更新预览"""
-        self.local_panel.select_file_by_name(filename)
-        self.svn_panel.select_file_by_name(filename)
-        # 让中间列也滚动到居中
+        self.local_panel.select_by_relative_path(filename)
+        self.svn_panel.select_by_relative_path(filename)
         self.diff_panel.scrollToSelectedRow()
-        local_path = self.local_panel.get_file_path_by_name(filename)
-        svn_path = self.svn_panel.get_file_path_by_name(filename)
+        local_path = self.local_panel.get_file_path_by_relative(filename)
+        svn_path = self.svn_panel.get_file_path_by_relative(filename)
         if local_path:
             self.local_preview.load_image(local_path)
         if svn_path:
@@ -408,3 +424,44 @@ class MainWindow(QMainWindow):
                 print(f"    [{exists}] {fav.name}: {fav.path}")
         except Exception as e:
             print(f"  - 错误: {e}")
+
+    def show_favorites_menu(self):
+        """显示收藏夹/历史路径选择菜单"""
+        menu = QMenu(self)
+
+        # 添加历史路径对
+        history = self.history_manager.get_all()
+        if history:
+            for item in history:
+                local_exists = "✓" if item.local_path.exists() else "✗"
+                svn_exists = "✓" if item.svn_path.exists() else "✗"
+                action = menu.addAction(f"📁 {item.local_path.name} [{local_exists}|{svn_exists}]")
+                action.setToolTip(f"本地: {item.local_path}\nSVN: {item.svn_path}")
+                action.triggered.connect(
+                    lambda checked, local=item.local_path, svn=item.svn_path:
+                    self.load_folder_pair(local, svn)
+                )
+
+        menu.addSeparator()
+        clear_action = menu.addAction("清空历史")
+        clear_action.triggered.connect(self.clear_history)
+
+        menu.exec(self.btn_favorites_menu.mapToGlobal(self.btn_favorites_menu.rect().bottomLeft()))
+
+    def load_folder_pair(self, local_path: Path, svn_path: Path):
+        """加载文件夹对（同时设置本地和SVN路径）"""
+        if local_path.exists():
+            self.local_panel.load_folder(local_path)
+        if svn_path.exists():
+            self.svn_panel.load_folder(svn_path)
+        if local_path.exists() and svn_path.exists():
+            self.update_diff_list()
+            self.save_history()
+
+    def clear_history(self):
+        """清空历史记录"""
+        self.history_manager.clear()
+        self.local_panel.clear_files()
+        self.svn_panel.clear_files()
+        self.diff_panel.clear_diff()
+        print("[历史] 已清空")

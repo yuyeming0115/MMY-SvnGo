@@ -160,14 +160,16 @@ class TransferPreviewDialog(QDialog):
         """按子文件夹分组填充树形列表"""
         self.tree.blockSignals(True)  # 阻止信号，避免填充时触发
 
-        # 按子文件夹分组
+        # 按子文件夹分组（显示完整子目录路径）
         folder_groups = {}
         for file_info, status in self.transfer_list:
-            # 从 relative_path 提取子文件夹名（第一级目录）
+            # 从 relative_path 提取子文件夹路径
             rel_path = file_info.relative_path or file_info.name
             parts = rel_path.replace('\\', '/').split('/')
+
             if len(parts) > 1:
-                folder_name = parts[0]  # 子文件夹名
+                # 取除文件名外的所有路径作为文件夹名
+                folder_name = '/'.join(parts[:-1])  # 如 "SE/idle"
             else:
                 folder_name = "(根目录)"
 

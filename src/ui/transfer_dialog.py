@@ -1,13 +1,12 @@
 """
-传输预览对话框 - 左右对比显示、自动生成提交信息
+传输预览对话框 - 子文件夹分组显示、自动生成提交信息
 """
 
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextEdit, QPushButton, QTableWidget, QHeaderView,
-    QTableWidgetItem, QAbstractItemView, QWidget,
-    QCheckBox, QMessageBox, QSplitter, QFrame
+    QTextEdit, QPushButton, QTreeWidget, QTreeWidgetItem,
+    QWidget, QMessageBox, QSplitter
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
@@ -16,7 +15,7 @@ from src.models.file_info import FileStatus
 
 
 class TransferPreviewDialog(QDialog):
-    """传输预览对话框"""
+    """传输预览对话框 - 支持子文件夹分组显示"""
 
     STATUS_COLORS = {
         FileStatus.MODIFIED: QColor(255, 100, 100),
@@ -97,34 +96,23 @@ class TransferPreviewDialog(QDialog):
         # 分隔器
         splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # 变更列表表格
-        table_widget = QWidget()
-        table_layout = QVBoxLayout(table_widget)
-        table_layout.setContentsMargins(0, 0, 0, 0)
+        # 变更列表（树形分组显示）
+        tree_widget = QWidget()
+        tree_layout = QVBoxLayout(tree_widget)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
 
-        table_label = QLabel("变更文件列表（勾选确认传输）：")
-        table_layout.addWidget(table_label)
+        tree_label = QLabel("变更文件列表（勾选文件夹或文件确认传输）：")
+        tree_layout.addWidget(tree_label)
 
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["确认", "本地文件", "SVN文件", "状态", "操作"])
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["文件名", "状态", "数量"])
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setAnimated(True)
+        self.tree.itemChanged.connect(self.on_tree_item_changed)
 
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 50)
-        self.table.setColumnWidth(3, 70)
-        self.table.setColumnWidth(4, 60)
-
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-
-        self.populate_table()
-        table_layout.addWidget(self.table)
-        splitter.addWidget(table_widget)
+        self.populate_tree()
+        tree_layout.addWidget(self.tree)
+        splitter.addWidget(tree_widget)
 
         # 提交信息编辑区
         commit_widget = QWidget()
@@ -167,59 +155,120 @@ class TransferPreviewDialog(QDialog):
 
         layout.addWidget(btn_bar)
 
-    def populate_table(self):
-        """填充变更列表表格"""
-        self.table.setRowCount(len(self.transfer_list))
+        # 用于存储子文件夹节点数据
+        self.folder_items = {}  # folder_name -> (folder_item, files_list)
 
-        for row, (file_info, status) in enumerate(self.transfer_list):
-            # 确认复选框
-            check_item = QTableWidgetItem()
-            check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            # 默认只勾选需要传输的文件
-            if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE):
-                check_item.setCheckState(Qt.CheckState.Checked)
+    def populate_tree(self):
+        """按子文件夹分组填充树形列表"""
+        self.tree.blockSignals(True)  # 阻止信号，避免填充时触发
+
+        # 按子文件夹分组
+        folder_groups = {}
+        for file_info, status in self.transfer_list:
+            # 从 relative_path 提取子文件夹名（第一级目录）
+            rel_path = file_info.relative_path or file_info.name
+            parts = rel_path.replace('\\', '/').split('/')
+            if len(parts) > 1:
+                folder_name = parts[0]  # 子文件夹名
             else:
-                check_item.setCheckState(Qt.CheckState.Unchecked)
-            self.table.setItem(row, 0, check_item)
+                folder_name = "(根目录)"
 
-            # 本地文件名（绿色背景）
-            local_item = QTableWidgetItem(file_info.name)
-            local_item.setToolTip(str(file_info.path))
-            local_item.setBackground(QBrush(QColor(230, 244, 230)))  # 浅绿色
-            self.table.setItem(row, 1, local_item)
+            if folder_name not in folder_groups:
+                folder_groups[folder_name] = []
+            folder_groups[folder_name].append((file_info, status))
 
-            # SVN文件名（根据状态显示）
-            if status == FileStatus.NEW_FILE:
-                svn_text = "(不存在)"
-                svn_item = QTableWidgetItem(svn_text)
-                svn_item.setForeground(QBrush(QColor(150, 150, 150)))  # 灰色
-            elif status == FileStatus.MODIFIED:
-                svn_text = file_info.name  # SVN有同名文件
-                svn_item = QTableWidgetItem(svn_text)
-                svn_item.setBackground(QBrush(QColor(244, 230, 230)))  # 浅红色
+        # 创建子文件夹节点
+        for folder_name, files in folder_groups.items():
+            folder_item = QTreeWidgetItem(self.tree)
+            folder_item.setText(0, f"📁 {folder_name}")
+
+            # 计算文件夹状态统计
+            modified_count = len([f for f, s in files if s == FileStatus.MODIFIED])
+            new_count = len([f for f, s in files if s == FileStatus.NEW_FILE])
+            total_count = len(files)
+
+            status_text = f"修改{modified_count} / 新增{new_count}" if modified_count or new_count else f"共{total_count}"
+            folder_item.setText(1, status_text)
+            folder_item.setText(2, str(total_count))
+
+            # 检查文件夹是否有更新文件
+            has_update = any(s in (FileStatus.MODIFIED, FileStatus.NEW_FILE) for _, s in files)
+
+            folder_item.setFlags(folder_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            folder_item.setCheckState(0, Qt.CheckState.Checked if has_update else Qt.CheckState.Unchecked)
+
+            # 设置文件夹背景色
+            if has_update:
+                folder_item.setBackground(0, QBrush(QColor(255, 240, 230)))  # 浅橙色
             else:
-                svn_text = file_info.name
-                svn_item = QTableWidgetItem(svn_text)
-            self.table.setItem(row, 2, svn_item)
+                folder_item.setBackground(0, QBrush(QColor(230, 244, 230)))  # 浅绿色
 
-            # 状态
-            status_text = {
-                FileStatus.MODIFIED: "已修改",
-                FileStatus.NEW_FILE: "新文件",
-                FileStatus.SVN_NEWER: "SVN较新",
-                FileStatus.SAME: "相同",
-            }.get(status, "未知")
-            status_item = QTableWidgetItem(status_text)
+            # 存储文件夹数据
+            self.folder_items[folder_name] = (folder_item, files)
 
-            color = self.STATUS_COLORS.get(status)
-            if color:
-                status_item.setBackground(QBrush(color))
-            self.table.setItem(row, 3, status_item)
+            # 添加文件子节点
+            for file_info, status in files:
+                file_item = QTreeWidgetItem(folder_item)
+                file_item.setText(0, file_info.name)
+                file_item.setToolTip(0, str(file_info.path))
 
-            # 操作
-            action_text = "复制" if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE) else "跳过"
-            action_item = QTableWidgetItem(action_text)
-            self.table.setItem(row, 4, action_item)
+                # 状态文字
+                status_text = {
+                    FileStatus.MODIFIED: "已修改",
+                    FileStatus.NEW_FILE: "新文件",
+                    FileStatus.SVN_NEWER: "SVN较新",
+                    FileStatus.SAME: "相同",
+                }.get(status, "未知")
+                file_item.setText(1, status_text)
+                file_item.setText(2, "复制" if status in (FileStatus.MODIFIED, FileStatus.NEW_FILE) else "跳过")
+
+                file_item.setFlags(file_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                file_item.setCheckState(0, Qt.CheckState.Checked if has_update else Qt.CheckState.Unchecked)
+                file_item.setData(0, Qt.ItemDataRole.UserRole, (file_info, status))  # 存储数据
+
+                # 设置文件背景色
+                if status == FileStatus.MODIFIED:
+                    file_item.setBackground(0, QBrush(QColor(255, 230, 230)))  # 浅红色
+                elif status == FileStatus.NEW_FILE:
+                    file_item.setBackground(0, QBrush(QColor(255, 240, 200)))  # 浅黄色
+                else:
+                    file_item.setBackground(0, QBrush(QColor(230, 244, 230)))  # 浅绿色
+
+        self.tree.expandAll()
+        self.tree.blockSignals(False)
+
+    def on_tree_item_changed(self, item: QTreeWidgetItem, column: int):
+        """树形项变化时处理复选框联动"""
+        if column != 0:  # 只处理第一列（复选框列）
+            return
+
+        self.tree.blockSignals(True)
+
+        check_state = item.checkState(0)
+
+        # 如果是文件夹节点，同步子文件
+        if item.parent() is None:  # 顶级节点（文件夹）
+            for i in range(item.childCount()):
+                child = item.child(i)
+                child.setCheckState(0, check_state)
+        else:  # 文件节点，更新父文件夹状态
+            parent = item.parent()
+            if parent:
+                # 计算父文件夹下所有子文件的勾选状态
+                checked_count = 0
+                for i in range(parent.childCount()):
+                    if parent.child(i).checkState(0) == Qt.CheckState.Checked:
+                        checked_count += 1
+
+                total_count = parent.childCount()
+                if checked_count == 0:
+                    parent.setCheckState(0, Qt.CheckState.Unchecked)
+                elif checked_count == total_count:
+                    parent.setCheckState(0, Qt.CheckState.Checked)
+                else:
+                    parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+
+        self.tree.blockSignals(False)
 
     def generate_commit_message(self) -> str:
         """自动生成提交信息"""
@@ -258,11 +307,18 @@ class TransferPreviewDialog(QDialog):
     def confirm_transfer(self):
         """确认传输"""
         self.confirmed_files = []
-        for row in range(self.table.rowCount()):
-            check_item = self.table.item(row, 0)
-            if check_item.checkState() == Qt.CheckState.Checked:
-                file_info, status = self.transfer_list[row]
-                self.confirmed_files.append((file_info, status))
+
+        # 从树形控件中获取勾选的文件
+        for i in range(self.tree.topLevelItemCount()):
+            folder_item = self.tree.topLevelItem(i)
+            for j in range(folder_item.childCount()):
+                file_item = folder_item.child(j)
+                if file_item.checkState(0) == Qt.CheckState.Checked:
+                    # 获取存储的数据
+                    data = file_item.data(0, Qt.ItemDataRole.UserRole)
+                    if data:
+                        file_info, status = data
+                        self.confirmed_files.append((file_info, status))
 
         if not self.confirmed_files:
             QMessageBox.warning(self, "提示", "请勾选要传输的文件")

@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
         self.svn_manager = SVNManager()
         self._was_inactive = False
         # SVN 模式相关属性
-        self.svn_mode = False  # 当前模式（False=常规，True=SVN）
+        self.svn_mode = True  # 默认启用 SVN 模式
         self.svn_parent_path: Path | None = None  # SVN 父级目录
         # 加载保存的 SVN 父级目录
         saved_svn_parent = self.history_manager.get_svn_parent_dir()
@@ -108,9 +108,11 @@ class MainWindow(QMainWindow):
         # 分隔
         top_layout.addSpacing(20)
 
-        # 模式切换按钮
-        self.btn_mode = QPushButton("SVN模式")
+        # 模式切换按钮（默认启用 SVN 模式）
+        self.btn_mode = QPushButton("常规模式")
         self.btn_mode.setCheckable(True)
+        self.btn_mode.setChecked(True)
+        self.btn_mode.setStyleSheet("QPushButton { background: #4a90d9; color: white; }")
         self.btn_mode.setToolTip("切换 SVN 模式/常规模式\nSVN模式：左侧拖入后右侧自动处理")
         self.btn_mode.setMinimumWidth(90)
         self.btn_mode.clicked.connect(self.toggle_mode)

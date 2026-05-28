@@ -1,0 +1,12 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-sp-65dc4979ed024f709ec3d723689b2c3a",
+    "ANTHROPIC_BASE_URL": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+    "ANTHROPIC_MODEL": "glm-5"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git init *)"
+    ]
+  }
+}

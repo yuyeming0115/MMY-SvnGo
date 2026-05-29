@@ -28,29 +28,31 @@ class PreviewPanel(QWidget):
     def init_ui(self):
         """初始化 UI"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(5, 2, 5, 2)
+        layout.setSpacing(3)
 
-        # 标题栏
+        # 标题栏（紧凑）
         title_bar = QWidget()
+        title_bar.setMaximumHeight(24)
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(5)
 
         title_label = QLabel(self.title)
         title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         title_layout.addWidget(title_label)
 
-        # 棋盘格切换按钮
-        self.btn_checkerboard = QPushButton("棋盘格")
-        self.btn_checkerboard.setToolTip("切换棋盘格背景显示透明区域")
-        self.btn_checkerboard.setMaximumWidth(60)
+        # 棋盘格切换按钮（紧凑）
+        self.btn_checkerboard = QPushButton("棋盘")
+        self.btn_checkerboard.setToolTip("切换棋盘格背景")
+        self.btn_checkerboard.setFixedSize(45, 20)
         self.btn_checkerboard.setCheckable(True)
         title_layout.addWidget(self.btn_checkerboard)
 
-        # 自动裁剪按钮
+        # 自动裁剪按钮（紧凑）
         self.btn_auto_crop = QPushButton("裁剪")
-        self.btn_auto_crop.setToolTip("自动裁剪透明边缘，最大化显示有效像素")
-        self.btn_auto_crop.setMaximumWidth(50)
+        self.btn_auto_crop.setToolTip("裁剪透明边缘")
+        self.btn_auto_crop.setFixedSize(40, 20)
         self.btn_auto_crop.setCheckable(True)
         self.btn_auto_crop.setChecked(True)
         title_layout.addWidget(self.btn_auto_crop)
@@ -62,7 +64,8 @@ class PreviewPanel(QWidget):
         # 图片显示区域
         self.image_frame = QFrame()
         self.image_frame.setStyleSheet("QFrame { background-color: #2a2a2a; }")
-        self.image_frame.setMinimumHeight(180)
+        self.image_frame.setMinimumHeight(200)
+        self.image_frame.setMinimumWidth(200)  # 设置最小宽度，使其接近方形
 
         image_layout = QVBoxLayout(self.image_frame)
         image_layout.setContentsMargins(0, 0, 0, 0)

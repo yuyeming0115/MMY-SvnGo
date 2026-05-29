@@ -14,12 +14,16 @@ class HistoryManager:
     """历史记录管理器"""
 
     MAX_HISTORY = 30  # 最大历史记录数
+    MAX_SVN_DIRS = 10  # 最大 SVN 父级目录数
     CONFIG_FILE = Path("config/history.json")
 
     def __init__(self):
         self.history: List[FolderPair] = []
         self.backup_dir: Optional[Path] = None  # 记忆的备份路径
-        self.svn_parent_dir: Optional[Path] = None  # SVN 模式父级目录
+        self.svn_parent_dirs: List[Path] = []  # SVN 模式父级目录列表
+        self.current_svn_parent_dir: Optional[Path] = None  # 当前选中的 SVN 父级目录
+        self.main_window_size: tuple = (700, 700)  # 主窗口尺寸
+        self.transfer_dialog_size: tuple = (500, 650)  # 传输预览对话框尺寸
         self.load()
 
     def load(self):
@@ -45,10 +49,35 @@ class HistoryManager:
             if backup_dir_str:
                 self.backup_dir = Path(backup_dir_str)
 
-            # 加载 SVN 父级目录
-            svn_parent_str = data.get("svn_parent_dir")
-            if svn_parent_str:
-                self.svn_parent_dir = Path(svn_parent_str)
+            # 加载 SVN 父级目录列表
+            self.svn_parent_dirs = []
+            for dir_str in data.get("svn_parent_dirs", []):
+                svn_dir = Path(dir_str)
+                if svn_dir.exists():
+                    self.svn_parent_dirs.append(svn_dir)
+
+            # 加载当前 SVN 父级目录
+            current_svn_str = data.get("current_svn_parent_dir")
+            if current_svn_str:
+                self.current_svn_parent_dir = Path(current_svn_str)
+
+            # 加载窗口尺寸
+            main_size = data.get("main_window_size")
+            if main_size and isinstance(main_size, list) and len(main_size) == 2:
+                self.main_window_size = (main_size[0], main_size[1])
+
+            transfer_size = data.get("transfer_dialog_size")
+            if transfer_size and isinstance(transfer_size, list) and len(transfer_size) == 2:
+                self.transfer_dialog_size = (transfer_size[0], transfer_size[1])
+
+            # 兼容旧版本：如果有旧的 svn_parent_dir，迁移到新列表
+            old_svn_str = data.get("svn_parent_dir")
+            if old_svn_str:
+                old_svn = Path(old_svn_str)
+                if old_svn.exists() and old_svn not in self.svn_parent_dirs:
+                    self.svn_parent_dirs.append(old_svn)
+                if not self.current_svn_parent_dir:
+                    self.current_svn_parent_dir = old_svn
 
             # 按最后使用时间排序（最近的在前）
             self.history.sort(key=lambda x: x.last_used, reverse=True)
@@ -57,7 +86,8 @@ class HistoryManager:
             print(f"加载历史记录失败: {e}")
             self.history = []
             self.backup_dir = None
-            self.svn_parent_dir = None
+            self.svn_parent_dirs = []
+            self.current_svn_parent_dir = None
 
     def save(self):
         """保存历史记录到配置文件"""
@@ -74,7 +104,10 @@ class HistoryManager:
                 for fp in self.history
             ],
             "backup_dir": str(self.backup_dir) if self.backup_dir else None,
-            "svn_parent_dir": str(self.svn_parent_dir) if self.svn_parent_dir else None
+            "svn_parent_dirs": [str(d) for d in self.svn_parent_dirs],
+            "current_svn_parent_dir": str(self.current_svn_parent_dir) if self.current_svn_parent_dir else None,
+            "main_window_size": list(self.main_window_size),
+            "transfer_dialog_size": list(self.transfer_dialog_size)
         }
 
         with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -135,11 +168,68 @@ class HistoryManager:
         """获取备份路径"""
         return self.backup_dir
 
-    def set_svn_parent_dir(self, svn_parent_dir: Path):
-        """设置 SVN 父级目录"""
-        self.svn_parent_dir = svn_parent_dir
+    def add_svn_parent_dir(self, svn_parent_dir: Path):
+        """添加 SVN 父级目录到列表"""
+        if svn_parent_dir not in self.svn_parent_dirs:
+            self.svn_parent_dirs.insert(0, svn_parent_dir)
+            # 限制数量
+            if len(self.svn_parent_dirs) > self.MAX_SVN_DIRS:
+                self.svn_parent_dirs = self.svn_parent_dirs[:self.MAX_SVN_DIRS]
+        self.current_svn_parent_dir = svn_parent_dir
         self.save()
 
+    def get_svn_parent_dirs(self) -> List[Path]:
+        """获取所有 SVN 父级目录"""
+        return [d for d in self.svn_parent_dirs if d.exists()]
+
+    def set_current_svn_parent_dir(self, svn_parent_dir: Path):
+        """设置当前 SVN 父级目录"""
+        self.current_svn_parent_dir = svn_parent_dir
+        # 如果不在列表中，添加进去
+        if svn_parent_dir not in self.svn_parent_dirs:
+            self.svn_parent_dirs.insert(0, svn_parent_dir)
+        self.save()
+
+    def get_current_svn_parent_dir(self) -> Optional[Path]:
+        """获取当前 SVN 父级目录"""
+        if self.current_svn_parent_dir and self.current_svn_parent_dir.exists():
+            return self.current_svn_parent_dir
+        # 如果当前目录不存在，返回列表中的第一个有效目录
+        valid_dirs = self.get_svn_parent_dirs()
+        if valid_dirs:
+            self.current_svn_parent_dir = valid_dirs[0]
+            return self.current_svn_parent_dir
+        return None
+
+    def clear_svn_parent_dirs(self):
+        """清空 SVN 父级目录列表"""
+        self.svn_parent_dirs = []
+        self.current_svn_parent_dir = None
+        self.save()
+
+    # 兼容旧版本的方法
+    def set_svn_parent_dir(self, svn_parent_dir: Path):
+        """设置 SVN 父级目录（兼容旧版本）"""
+        self.add_svn_parent_dir(svn_parent_dir)
+
     def get_svn_parent_dir(self) -> Optional[Path]:
-        """获取 SVN 父级目录"""
-        return self.svn_parent_dir
+        """获取 SVN 父级目录（兼容旧版本）"""
+        return self.get_current_svn_parent_dir()
+
+    def set_main_window_size(self, width: int, height: int):
+        """保存主窗口尺寸"""
+        self.main_window_size = (width, height)
+        self.save()
+
+    def get_main_window_size(self) -> tuple:
+        """获取主窗口尺寸"""
+        return self.main_window_size
+
+    def set_transfer_dialog_size(self, width: int, height: int):
+        """保存传输预览对话框尺寸"""
+        self.transfer_dialog_size = (width, height)
+        self.save()
+
+    def get_transfer_dialog_size(self) -> tuple:
+        """获取传输预览对话框尺寸"""
+        return self.transfer_dialog_size

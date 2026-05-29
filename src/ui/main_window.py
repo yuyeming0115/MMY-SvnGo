@@ -35,8 +35,8 @@ class MainWindow(QMainWindow):
         # SVN 模式相关属性
         self.svn_mode = True  # 默认启用 SVN 模式
         self.svn_parent_path: Path | None = None  # SVN 父级目录
-        # 加载保存的 SVN 父级目录
-        saved_svn_parent = self.history_manager.get_svn_parent_dir()
+        # 加载当前 SVN 父级目录
+        saved_svn_parent = self.history_manager.get_current_svn_parent_dir()
         if saved_svn_parent and saved_svn_parent.exists():
             self.svn_parent_path = saved_svn_parent
         self.init_ui()
@@ -61,8 +61,11 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """初始化 UI"""
         self.setWindowTitle("MMY SvnGo - 文件同步工具")
-        self.setMinimumSize(700, 500)
-        self.resize(800, 700)
+        self.setMinimumSize(700, 700)
+
+        # 加载保存的窗口尺寸
+        saved_size = self.history_manager.get_main_window_size()
+        self.resize(saved_size[0], saved_size[1])
 
         # 创建中心部件
         central_widget = QWidget()
@@ -90,61 +93,86 @@ class MainWindow(QMainWindow):
         top_bar = QWidget()
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(8)
+
+        # 按钮通用样式（方形按钮，带边框）
+        button_style = """
+            QPushButton {
+                min-height: 32px;
+                padding: 6px 12px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 13px;
+                background: #f5f5f5;
+            }
+            QPushButton:hover {
+                background: #e8e8e8;
+                border: 1px solid #999;
+            }
+            QPushButton:pressed {
+                background: #ddd;
+            }
+        """
 
         # 手动更新按钮
         self.btn_refresh = QPushButton("手动更新")
         self.btn_refresh.setToolTip("刷新左右两侧文件列表")
-        self.btn_refresh.setMinimumWidth(100)
+        self.btn_refresh.setStyleSheet(button_style)
         top_layout.addWidget(self.btn_refresh)
 
         # 备份按钮
         self.btn_backup = QPushButton("备份")
         self.btn_backup.setToolTip("备份当前 SVN 目录到压缩包")
-        self.btn_backup.setMinimumWidth(80)
+        self.btn_backup.setStyleSheet(button_style)
         top_layout.addWidget(self.btn_backup)
 
         # 传输按钮
         self.btn_transfer = QPushButton("传输")
         self.btn_transfer.setToolTip("预览并执行文件复制到 SVN 目录")
-        self.btn_transfer.setMinimumWidth(80)
+        self.btn_transfer.setStyleSheet(button_style)
         top_layout.addWidget(self.btn_transfer)
 
         # 分隔
-        top_layout.addSpacing(20)
+        top_layout.addSpacing(15)
+
+        # 路径对按钮（历史路径对的快速加载）
+        self.btn_path_pairs = QPushButton("路径对")
+        self.btn_path_pairs.setToolTip("选择历史路径对快速加载")
+        self.btn_path_pairs.setStyleSheet(button_style)
+        self.btn_path_pairs.clicked.connect(self.show_path_pairs_menu)
+        top_layout.addWidget(self.btn_path_pairs)
+
+        # SVN目录按钮（管理SVN父级目录）
+        self.btn_svn_dirs = QPushButton("SVN目录")
+        self.btn_svn_dirs.setToolTip("管理 SVN 父级目录列表")
+        self.btn_svn_dirs.setStyleSheet(button_style)
+        self.btn_svn_dirs.clicked.connect(self.show_svn_dirs_menu)
+        top_layout.addWidget(self.btn_svn_dirs)
+
+        # 分隔后，SVN模式按钮放最右边
+        top_layout.addStretch()
 
         # 模式切换按钮（默认启用 SVN 模式）
-        self.btn_mode = QPushButton("常规模式")
+        self.btn_mode = QPushButton("SVN模式")
         self.btn_mode.setCheckable(True)
         self.btn_mode.setChecked(True)
-        self.btn_mode.setStyleSheet("QPushButton { background: #4a90d9; color: white; }")
+        self.btn_mode.setStyleSheet("""
+            QPushButton {
+                min-height: 32px;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                background: #4a90d9;
+                color: white;
+                border: 1px solid #3a7ab9;
+            }
+            QPushButton:hover {
+                background: #3a7ab9;
+            }
+        """)
         self.btn_mode.setToolTip("切换 SVN 模式/常规模式\nSVN模式：左侧拖入后右侧自动处理")
-        self.btn_mode.setMinimumWidth(90)
         self.btn_mode.clicked.connect(self.toggle_mode)
         top_layout.addWidget(self.btn_mode)
-
-        # 分隔
-        top_layout.addSpacing(10)
-
-        # 收藏夹按钮（带下拉三角）
-        favorites_widget = QWidget()
-        favorites_layout = QHBoxLayout(favorites_widget)
-        favorites_layout.setContentsMargins(0, 0, 0, 0)
-        favorites_layout.setSpacing(0)
-
-        self.btn_favorites = QPushButton("收藏夹")
-        self.btn_favorites.setToolTip("预设和历史目录")
-        self.btn_favorites.setMinimumWidth(80)
-        favorites_layout.addWidget(self.btn_favorites)
-
-        self.btn_favorites_menu = QPushButton("▼")
-        self.btn_favorites_menu.setMaximumWidth(25)
-        self.btn_favorites_menu.setToolTip("选择历史路径对")
-        self.btn_favorites_menu.clicked.connect(self.show_favorites_menu)
-        favorites_layout.addWidget(self.btn_favorites_menu)
-
-        top_layout.addWidget(favorites_widget)
-
-        top_layout.addStretch()
 
         parent_layout.addWidget(top_bar)
 
@@ -197,12 +225,13 @@ class MainWindow(QMainWindow):
         preview_splitter.addWidget(self.svn_preview)
 
         # 设置分割比例
-        preview_splitter.setSizes([550, 550])
+        preview_splitter.setSizes([400, 400])
 
-        # 预览区域高度固定
-        preview_splitter.setMaximumHeight(220)
+        # 预览区域高度增加（接近方形）
+        preview_splitter.setMinimumHeight(220)
+        preview_splitter.setMaximumHeight(280)
 
-        parent_layout.addWidget(preview_splitter)
+        parent_layout.addWidget(preview_splitter, stretch=1)  # 添加 stretch 让预览区域有更多空间
 
     def connect_signals(self):
         """连接信号"""
@@ -221,7 +250,6 @@ class MainWindow(QMainWindow):
         self.btn_refresh.clicked.connect(self.on_refresh)
         self.btn_backup.clicked.connect(self.on_backup)
         self.btn_transfer.clicked.connect(self.on_transfer)
-        self.btn_favorites.clicked.connect(self.on_favorites)
 
     def load_last_used(self):
         """加载上次使用的文件夹对"""
@@ -352,14 +380,42 @@ class MainWindow(QMainWindow):
         """切换 SVN 模式/常规模式"""
         self.svn_mode = self.btn_mode.isChecked()
         if self.svn_mode:
-            self.btn_mode.setText("常规模式")
-            self.btn_mode.setStyleSheet("QPushButton { background: #4a90d9; color: white; }")
+            # SVN 模式激活：按钮显示"SVN模式" + 蓝色高亮
+            self.btn_mode.setText("SVN模式")
+            self.btn_mode.setStyleSheet("""
+                QPushButton {
+                    min-height: 32px;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    background: #4a90d9;
+                    color: white;
+                    border: 1px solid #3a7ab9;
+                }
+                QPushButton:hover {
+                    background: #3a7ab9;
+                }
+            """)
             print("[模式] 切换到 SVN 模式")
             if not self.svn_parent_path:
-                QMessageBox.information(self, "提示", "SVN 模式已启用\n请在收藏夹下拉菜单中设置 SVN 父级目录")
+                QMessageBox.information(self, "提示", "SVN 模式已启用\n请在 SVN目录 按钮中设置 SVN 父级目录")
         else:
-            self.btn_mode.setText("SVN模式")
-            self.btn_mode.setStyleSheet("")
+            # 常规模式激活：按钮显示"常规模式" + 正常颜色
+            self.btn_mode.setText("常规模式")
+            self.btn_mode.setStyleSheet("""
+                QPushButton {
+                    min-height: 32px;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    background: #f5f5f5;
+                    border: 1px solid #ccc;
+                }
+                QPushButton:hover {
+                    background: #e8e8e8;
+                    border: 1px solid #999;
+                }
+            """)
             print("[模式] 切换到常规模式")
 
     def set_svn_parent_path(self):
@@ -371,9 +427,10 @@ class MainWindow(QMainWindow):
         )
         if dir_path:
             self.svn_parent_path = Path(dir_path)
-            self.history_manager.set_svn_parent_dir(self.svn_parent_path)
+            # 添加到列表并设置为当前
+            self.history_manager.add_svn_parent_dir(self.svn_parent_path)
             print(f"[SVN] 父级目录设置为: {self.svn_parent_path}")
-            QMessageBox.information(self, "设置成功", f"SVN 父级目录已设置为:\n{self.svn_parent_path}")
+            QMessageBox.information(self, "已添加", f"SVN 父级目录已添加:\n{self.svn_parent_path}")
 
     def on_refresh(self):
         """手动更新按钮点击"""
@@ -426,13 +483,14 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "没有需要传输的文件（所有文件都已同步）")
             return
 
-        # 打开传输预览对话框（传递更新信息）
+        # 打开传输预览对话框（传递更新信息和历史管理器）
         update_info = self.update_info_edit.text().strip()
         dialog = TransferPreviewDialog(
             transfer_list,
             self.local_panel.current_path,
             self.svn_panel.current_path,
             update_info,  # 初始提交信息
+            self.history_manager,  # 用于保存对话框尺寸
             self
         )
         if dialog.exec():
@@ -501,35 +559,12 @@ class MainWindow(QMainWindow):
             self.on_refresh()
 
     def on_favorites(self):
-        """收藏夹按钮点击"""
-        print("[按钮] 收藏夹")
-        try:
-            favorites = self.favorite_manager.get_all()
-            print(f"  - 收藏夹数量: {len(favorites)}")
-            for fav in favorites:
-                exists = "✓" if fav.path.exists() else "✗"
-                print(f"    [{exists}] {fav.name}: {fav.path}")
-        except Exception as e:
-            print(f"  - 错误: {e}")
+        """收藏夹按钮点击 - 已废弃，改为独立按钮"""
+        pass
 
-    def show_favorites_menu(self):
-        """显示收藏夹/历史路径选择菜单"""
+    def show_path_pairs_menu(self):
+        """显示路径对选择菜单"""
         menu = QMenu(self)
-
-        # SVN 模式设置（在顶部显示）
-        if self.svn_mode:
-            svn_header = menu.addAction("── SVN 模式设置 ──")
-            svn_header.setEnabled(False)
-
-            svn_parent_action = menu.addAction("设置 SVN 父级目录")
-            svn_parent_action.triggered.connect(self.set_svn_parent_path)
-
-            if self.svn_parent_path:
-                current_action = menu.addAction(f"当前: {self.svn_parent_path.name}")
-                current_action.setToolTip(str(self.svn_parent_path))
-                current_action.setEnabled(False)
-
-            menu.addSeparator()
 
         # 添加历史路径对
         history = self.history_manager.get_all()
@@ -547,11 +582,79 @@ class MainWindow(QMainWindow):
                     self.load_folder_pair(local, svn)
                 )
 
+        if not history:
+            no_history = menu.addAction("(暂无历史记录)")
+            no_history.setEnabled(False)
+
         menu.addSeparator()
-        clear_action = menu.addAction("清空历史")
+        clear_action = menu.addAction("清空历史路径")
         clear_action.triggered.connect(self.clear_history)
 
-        menu.exec(self.btn_favorites_menu.mapToGlobal(self.btn_favorites_menu.rect().bottomLeft()))
+        menu.exec(self.btn_path_pairs.mapToGlobal(self.btn_path_pairs.rect().bottomLeft()))
+
+    def show_svn_dirs_menu(self):
+        """显示 SVN 目录管理菜单"""
+        menu = QMenu(self)
+
+        svn_header = menu.addAction("── SVN 父级目录 ──")
+        svn_header.setEnabled(False)
+
+        # 添加已保存的 SVN 父级目录列表
+        saved_svn_dirs = self.history_manager.get_svn_parent_dirs()
+        for svn_dir in saved_svn_dirs:
+            is_current = self.svn_parent_path == svn_dir
+            marker = "● " if is_current else "   "
+            action = menu.addAction(f"{marker}{svn_dir.name}")
+            action.setToolTip(str(svn_dir))
+            if is_current:
+                action.setEnabled(False)  # 当前选中的不可点击
+            else:
+                action.triggered.connect(lambda checked, d=svn_dir: self.select_svn_parent_dir(d))
+
+        menu.addSeparator()
+
+        # 添加新目录选项
+        add_svn_action = menu.addAction("➕ 添加 SVN 父级目录...")
+        add_svn_action.triggered.connect(self.set_svn_parent_path)
+
+        # 清空 SVN 目录列表
+        if saved_svn_dirs:
+            clear_svn_action = menu.addAction("清空 SVN 目录列表")
+            clear_svn_action.triggered.connect(self.clear_svn_parent_dirs)
+
+        menu.exec(self.btn_svn_dirs.mapToGlobal(self.btn_svn_dirs.rect().bottomLeft()))
+
+    def show_favorites_menu(self):
+        """显示收藏夹菜单 - 已废弃"""
+        pass
+
+    def select_svn_parent_dir(self, svn_dir: Path):
+        """选择已有的 SVN 父级目录"""
+        self.svn_parent_path = svn_dir
+        self.history_manager.set_current_svn_parent_dir(svn_dir)
+        print(f"[SVN] 切换父级目录: {svn_dir}")
+
+        # 如果左侧已有加载的文件夹，右侧自动切换到对应SVN子目录
+        if self.svn_mode and self.local_panel.current_path:
+            folder_name = self.local_panel.current_path.name
+            svn_target = svn_dir / folder_name
+
+            if svn_target.exists() and svn_target.is_dir():
+                self.svn_panel.load_folder(svn_target)
+                print(f"[SVN] 自动切换右侧到: {svn_target}")
+                self.update_diff_list()
+            else:
+                # 如果不存在同名文件夹，清空右侧
+                self.svn_panel.clear_files()
+                self.diff_panel.clear_diff()
+                print(f"[SVN] 目标目录不存在: {svn_target}")
+
+    def clear_svn_parent_dirs(self):
+        """清空 SVN 父级目录列表"""
+        self.history_manager.clear_svn_parent_dirs()
+        self.svn_parent_path = None
+        print("[SVN] 已清空父级目录列表")
+        QMessageBox.information(self, "已清空", "SVN 父级目录列表已清空")
 
     def load_folder_pair(self, local_path: Path, svn_path: Path):
         """加载文件夹对（同时设置本地和SVN路径）"""
@@ -570,3 +673,10 @@ class MainWindow(QMainWindow):
         self.svn_panel.clear_files()
         self.diff_panel.clear_diff()
         print("[历史] 已清空")
+
+    def closeEvent(self, event):
+        """窗口关闭时保存尺寸"""
+        size = self.size()
+        self.history_manager.set_main_window_size(size.width(), size.height())
+        print(f"[窗口] 保存尺寸: {size.width()}x{size.height()}")
+        event.accept()

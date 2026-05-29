@@ -4,7 +4,7 @@
 
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
@@ -49,14 +49,38 @@ class DiffListPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
 
+        # 标题栏（和左右两列对齐）
+        title_bar = QWidget()
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+
         title_label = QLabel("传输差异")
         title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title_label)
+        title_layout.addWidget(title_label)
+
+        title_layout.addStretch()
+
+        # 文件计数（和左右两列格式一致）
+        self.count_label = QLabel("0")
+        self.count_label.setStyleSheet("color: #666; font-size: 12px;")
+        title_layout.addWidget(self.count_label)
+
+        layout.addWidget(title_bar)
+
+        # 路径栏占位（和左右两列对齐，但内容为空）
+        path_bar = QWidget()
+        path_bar.setFixedHeight(22)  # 和左右两列的路径输入框高度一致
+        layout.addWidget(path_bar)
 
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(False)
         self.list_widget.currentRowChanged.connect(self.on_row_changed)
         layout.addWidget(self.list_widget)
+
+        # 底部占位（和左右两列对齐）
+        bottom_bar = QWidget()
+        bottom_bar.setFixedHeight(18)  # 和左右两列的底部路径显示高度一致
+        layout.addWidget(bottom_bar)
 
     def on_row_changed(self, row: int):
         """选中行变化时，立即发送信号（不延迟，实现快速切换预览效果）"""
@@ -91,6 +115,9 @@ class DiffListPanel(QWidget):
 
             self.list_widget.addItem(item)
 
+        # 更新计数
+        self.count_label.setText(str(len(self.file_names)))
+
     def select_by_filename(self, filename: str):
         """根据完整文件名选中对应行（不触发同步）"""
         if filename in self.file_names:
@@ -118,3 +145,4 @@ class DiffListPanel(QWidget):
         self.list_widget.clear()
         self.file_names = []
         self._last_row = -1
+        self.count_label.setText("0")

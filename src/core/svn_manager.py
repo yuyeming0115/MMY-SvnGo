@@ -151,12 +151,32 @@ class SVNManager:
     def tortoise_commit(self, path: Path, message: str) -> bool:
         """使用 TortoiseSVN 提交（弹出 GUI）"""
         try:
+            # TortoiseSVN 的 /logmsg 参数不支持多行文本
+            # 使用临时文件传递提交信息
+            import tempfile
+
+            # 创建临时文件保存提交信息
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                f.write(message)
+                logmsg_file = Path(f.name)
+
             subprocess.run([
                 str(self.TORTOISESVN_PATH),
                 "/command:commit",
                 f"/path:{path}",
-                f"/logmsg:{message}",
+                f"/logmsgfile:{logmsg_file}",
             ], check=True)
+
+            # 提交窗口打开后删除临时文件（保留一段时间让TortoiseSVN读取）
+            # 使用定时器延迟删除
+            import threading
+            def cleanup():
+                try:
+                    logmsg_file.unlink()
+                except:
+                    pass
+            threading.Timer(5.0, cleanup).start()
+
             return True
         except Exception as e:
             print(f"TortoiseSVN 提交失败: {e}")

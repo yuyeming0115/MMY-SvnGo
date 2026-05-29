@@ -28,25 +28,25 @@ class FileComparator:
         """
         result = {}
 
-        # 建立文件名映射（使用相对路径名）
-        local_map = {f.name: f for f in local_files}
-        svn_map = {f.name: f for f in svn_files}
+        # 建立文件名映射（使用相对路径名，避免同名文件覆盖）
+        local_map = {f.relative_path: f for f in local_files}
+        svn_map = {f.relative_path: f for f in svn_files}
 
         # 检查本地文件
-        for filename, local_info in local_map.items():
-            if filename not in svn_map:
+        for rel_path, local_info in local_map.items():
+            if rel_path not in svn_map:
                 # 仅存在于本地：新文件
-                result[filename] = (local_info, FileStatus.NEW_FILE)
+                result[rel_path] = (local_info, FileStatus.NEW_FILE)
             else:
-                svn_info = svn_map[filename]
+                svn_info = svn_map[rel_path]
                 status = self.compare_file(local_info, svn_info)
-                result[filename] = (local_info, status)
+                result[rel_path] = (local_info, status)
 
         # 检查 SVN 中独有的文件（可能被本地删除）
-        for filename, svn_info in svn_map.items():
-            if filename not in local_map:
+        for rel_path, svn_info in svn_map.items():
+            if rel_path not in local_map:
                 # 仅存在于 SVN：SVN 较新或本地已删除
-                result[filename] = (svn_info, FileStatus.SVN_NEWER)
+                result[rel_path] = (svn_info, FileStatus.SVN_NEWER)
 
         return result
 

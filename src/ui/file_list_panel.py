@@ -47,9 +47,9 @@ class FileListPanel(QWidget):
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_label = QLabel(self.title)
-        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        title_layout.addWidget(title_label)
+        self.title_label = QLabel(self.title)
+        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        title_layout.addWidget(self.title_label)
 
         title_layout.addStretch()
 
@@ -125,7 +125,10 @@ class FileListPanel(QWidget):
     def load_folder(self, path: Path):
         """加载指定文件夹"""
         self.current_path = path
-        self.path_edit.setText(path.name)
+        # 更新标题显示文件夹名
+        self.title_label.setText(f"{self.title} - {path.name}")
+        # 路径显示完整路径
+        self.path_edit.setText(str(path))
         self.path_edit.setToolTip(str(path))
         self.scan_and_display(path)
         self.folder_dropped.emit(path)
@@ -266,6 +269,8 @@ class FileListPanel(QWidget):
         self.table.setRowCount(0)
         self.file_list = []
         self.current_path = None
+        # 恢复默认标题
+        self.title_label.setText(self.title)
         self.path_edit.setText("")
         self.path_edit.setToolTip("")
         self.count_label.setText("0")

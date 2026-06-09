@@ -63,11 +63,18 @@ python -m unittest discover -s tests
 python -m compileall -q src tests build.py
 ```
 
+GUI 烟测（需要 PyQt6）：
+
+```powershell
+python tests\gui_smoke.py
+```
+
 当前测试覆盖：
 
 - SVN 较新文件优先标记为风险项。
 - 图片尺寸缓存逻辑。
 - `svn add --parents` 参数。
+- 主窗口基础初始化 smoke 检查。
 
 ## 打包发布
 
@@ -99,6 +106,13 @@ python build.py --version 0.1.1
 
 ```text
 release/v{版本号}/
+```
+
+最新发布包也会同步到：
+
+```text
+release/latest/
+release/LATEST.txt
 ```
 
 Windows 发布文件命名格式：

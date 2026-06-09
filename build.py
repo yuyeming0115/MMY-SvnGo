@@ -281,6 +281,12 @@ def create_release(output_file, version=None):
     # 生成 README.txt
     readme_name = f"README_v{version}.txt"
     readme_file = version_dir / readme_name
+    if IS_WINDOWS:
+        usage_text = f"  Windows: 双击 {target_name}"
+    elif IS_MAC:
+        usage_text = f"  macOS: 双击 {target_name} 或在终端运行 ./{target_name}"
+    else:
+        usage_text = f"  运行: ./{target_name}"
 
     readme_content = f"""MMY SvnGo 发布说明
 ==================
@@ -297,8 +303,7 @@ def create_release(output_file, version=None):
   - 需要 TortoiseSVN（Windows）/ svn 命令行工具（macOS）
 
 使用方法:
-  Windows: 双击 {target_name}
-  macOS:   双击 {target_name} 或在终端运行 ./{target_name}
+{usage_text}
 
 功能说明:
   - 文件同步工具，用于 SVN 项目文件管理

@@ -29,6 +29,14 @@ class SVNManager:
         except Exception:
             return False
 
+    def get_tool_status(self) -> dict:
+        """获取 SVN 工具可用状态，用于首次使用引导。"""
+        return {
+            "tortoise": self.tortoise_available,
+            "svn_cli": shutil.which("svn") is not None,
+            "tortoise_path": str(self.TORTOISESVN_PATH),
+        }
+
     def update(self, path: Path, silent: bool = False) -> bool:
         """执行 SVN 更新
 

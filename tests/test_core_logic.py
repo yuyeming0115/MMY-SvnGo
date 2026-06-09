@@ -60,6 +60,17 @@ class CoreLogicTest(unittest.TestCase):
 
         self.assertIn("--parents", calls[0])
 
+    def test_svn_tool_status_reports_cli_and_tortoise(self):
+        manager = SVNManager()
+        manager.tortoise_available = True
+
+        with patch("src.core.svn_manager.shutil.which", return_value="C:/svn/svn.exe"):
+            status = manager.get_tool_status()
+
+        self.assertTrue(status["svn_cli"])
+        self.assertTrue(status["tortoise"])
+        self.assertIn("tortoise_path", status)
+
 
 if __name__ == "__main__":
     unittest.main()

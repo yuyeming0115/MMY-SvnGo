@@ -30,6 +30,9 @@ def main():
         assert window.diff_panel is not None
         assert window.local_preview is not None
         assert window.svn_preview is not None
+        assert not window.btn_choose_local.isHidden()
+        assert not window.btn_setup_svn_parent.isHidden()
+        assert not window.btn_check_svn_tools.isHidden()
 
         with redirect_stdout(StringIO()):
             window.close()

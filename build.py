@@ -316,11 +316,50 @@ def create_release(output_file, version=None):
     readme_file.write_text(readme_content, encoding="utf-8")
     print(f"  {readme_name}")
 
+    latest_dir = update_latest_release(version, target_file, readme_file, target_name)
+
     print(f"\n[发布] 完成!")
     print(f"  目录: {version_dir}")
+    print(f"  最新: {latest_dir}")
     print()
 
     return version_dir
+
+
+def update_latest_release(version, target_file, readme_file, target_name):
+    """更新 release/latest 和 LATEST.txt，方便快速找到最新发布包。"""
+    latest_dir = release_dir / "latest"
+    latest_dir.mkdir(parents=True, exist_ok=True)
+
+    for old_file in latest_dir.iterdir():
+        if old_file.is_file():
+            old_file.unlink()
+        elif old_file.is_dir():
+            shutil.rmtree(old_file)
+
+    latest_target = latest_dir / target_name
+    if target_file.is_dir():
+        shutil.copytree(target_file, latest_target)
+    else:
+        shutil.copy2(target_file, latest_target)
+
+    latest_readme = latest_dir / readme_file.name
+    shutil.copy2(readme_file, latest_readme)
+
+    latest_note = release_dir / "LATEST.txt"
+    latest_note.write_text(
+        "\n".join([
+            "MMY SvnGo 最新发布",
+            "==================",
+            f"版本: {version}",
+            f"文件: latest/{target_name}",
+            f"说明: latest/{readme_file.name}",
+            f"源目录: v{version}/",
+        ]) + "\n",
+        encoding="utf-8",
+    )
+
+    return latest_dir
 
 
 def main():

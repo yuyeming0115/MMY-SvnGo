@@ -40,6 +40,8 @@ class TransferPreviewDialog(QDialog):
         self.folder_buttons = {}  # 存储子文件夹按钮和选中状态
         self.folder_groups = {}  # 按子文件夹分组的文件数据
         self.folder_hierarchy = {}  # 文件夹层级结构 {一级: {二级: [文件]}}
+        self.commit_msg_touched = bool(initial_commit_msg.strip())
+        self._updating_commit_msg = False
         self.init_ui()
 
     def init_ui(self):
@@ -120,6 +122,7 @@ class TransferPreviewDialog(QDialog):
         self.commit_edit.setPlaceholderText("输入提交说明...")
         self.commit_edit.setMaximumHeight(80)
         self.commit_edit.setText(self.initial_commit_msg if self.initial_commit_msg else self.generate_commit_message())
+        self.commit_edit.textChanged.connect(self.on_commit_text_changed)
         layout.addWidget(self.commit_edit)
 
         # 统计信息（紧凑）
@@ -329,6 +332,7 @@ class TransferPreviewDialog(QDialog):
 
         # 更新统计信息
         self.stats_label.setText(self.get_stats_text())
+        self.refresh_commit_message_if_auto()
 
     def toggle_folder_button(self, folder_name: str):
         """切换二级子文件夹按钮的选中状态"""
@@ -369,6 +373,20 @@ class TransferPreviewDialog(QDialog):
 
         # 更新统计信息
         self.stats_label.setText(self.get_stats_text())
+        self.refresh_commit_message_if_auto()
+
+    def on_commit_text_changed(self):
+        """记录用户是否手动编辑过提交信息。"""
+        if not self._updating_commit_msg:
+            self.commit_msg_touched = True
+
+    def refresh_commit_message_if_auto(self):
+        """用户未手动编辑时，随选择状态刷新提交信息。"""
+        if self.commit_msg_touched:
+            return
+        self._updating_commit_msg = True
+        self.commit_edit.setText(self.generate_commit_message())
+        self._updating_commit_msg = False
 
     def generate_commit_message(self) -> str:
         """自动生成提交信息"""

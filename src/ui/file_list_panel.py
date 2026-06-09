@@ -2,6 +2,7 @@
 文件列表面板 - 支持拖拽、文件扫描、预览信号、历史路径选择
 """
 
+import os
 from pathlib import Path
 from re import match
 from PyQt6.QtWidgets import (
@@ -18,8 +19,8 @@ from src.core.file_scanner import FileScanner
 class FileListPanel(QWidget):
     """文件列表面板（支持拖拽）"""
 
-    folder_dropped = pyqtSignal(Path)
-    file_selected = pyqtSignal(Path)  # 发送完整路径
+    folder_dropped = pyqtSignal(object)  # 发送路径（Path 或字符串）
+    file_selected = pyqtSignal(object)   # 发送完整路径（Path 或字符串）
     file_selected_relative = pyqtSignal(str)  # 发送相对路径（用于同步）
 
     HIGHLIGHT_COLOR = QColor(100, 150, 255, 100)
@@ -34,6 +35,7 @@ class FileListPanel(QWidget):
         self.history_manager = history_manager
         self._sync_selecting = False
         self._last_selected_row = -1
+        self.global_crop_bbox: tuple | None = None  # 全局裁剪边界框缓存
         self.init_ui()
 
     def init_ui(self):
@@ -122,16 +124,82 @@ class FileListPanel(QWidget):
 
         menu.exec(self.history_btn.mapToGlobal(self.history_btn.rect().bottomLeft()))
 
-    def load_folder(self, path: Path):
-        """加载指定文件夹"""
-        self.current_path = path
-        # 更新标题显示文件夹名
-        self.title_label.setText(f"{self.title} - {path.name}")
-        # 路径显示完整路径
-        self.path_edit.setText(str(path))
-        self.path_edit.setToolTip(str(path))
-        self.scan_and_display(path)
-        self.folder_dropped.emit(path)
+    def load_folder(self, path):
+        """加载指定文件夹
+
+        Args:
+            path: 文件夹路径（可以是 Path 或字符串）
+        """
+        try:
+            # 转换为字符串，避免 Path 递归问题
+            if isinstance(path, Path):
+                try:
+                    path_str = str(path)
+                except RecursionError:
+                    print(f"[加载] Path转字符串递归错误")
+                    return
+            else:
+                path_str = path
+
+            self.current_path = path_str
+
+            # 从字符串直接提取文件夹名（避免 os.path.basename 递归）
+            path_str_normalized = path_str.replace("\\", "/").rstrip("/")
+            folder_name = path_str_normalized.split("/")[-1] if path_str_normalized else ""
+
+            self.title_label.setText(f"{self.title} - {folder_name}")
+            self.path_edit.setText(path_str)
+            self.path_edit.setToolTip(path_str)
+            self.scan_and_display(path_str)
+            self.global_crop_bbox = None
+            self.folder_dropped.emit(path_str)
+        except RecursionError:
+            print(f"[加载] 递归错误: {path}")
+        except Exception as e:
+            print(f"[加载] 错误: {e}")
+
+    def compute_global_bbox_async(self):
+        """计算全局边界框并返回结果"""
+        if self.current_path:
+            try:
+                self.global_crop_bbox = self.scanner.compute_global_bbox(self.current_path)
+                return self.global_crop_bbox
+            except Exception as e:
+                print(f"[边界框] 计算失败: {e}")
+                self.global_crop_bbox = None
+                return None
+        return None
+
+    def set_path_only(self, path):
+        """仅设置路径不扫描（用于SVN父级目录延迟扫描）"""
+        if isinstance(path, Path):
+            try:
+                path_str = str(path)
+            except RecursionError:
+                print(f"[设置] Path转字符串递归错误")
+                return
+        else:
+            path_str = path
+
+        self.current_path = path_str
+
+        # 从字符串直接提取文件夹名
+        path_str_normalized = path_str.replace("\\", "/").rstrip("/")
+        folder_name = path_str_normalized.split("/")[-1] if path_str_normalized else ""
+
+        self.title_label.setText(f"{self.title} - {folder_name}")
+        self.path_edit.setText(path_str)
+        self.path_edit.setToolTip(path_str)
+        # 清空列表，显示等待提示
+        self.table.setRowCount(0)
+        self.file_list = []
+        self.count_label.setText("等待左列...")
+        self.selected_path_label.setText("已设置路径，等待左列拖入后自动匹配")
+        self.global_crop_bbox = None
+
+    def get_global_crop_bbox(self) -> tuple | None:
+        """获取全局裁剪边界框"""
+        return self.global_crop_bbox
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -150,12 +218,44 @@ class FileListPanel(QWidget):
                 return
         event.ignore()
 
-    def scan_and_display(self, path: Path):
-        self.file_list = self.scanner.scan_folder(path)
+    def scan_and_display(self, path):
+        """扫描并显示文件列表"""
+        try:
+            self.file_list = self.scanner.scan_folder(path)
+            self.apply_file_list(self.file_list)
+        except RecursionError:
+            print(f"[扫描显示] 递归错误，跳过: {path}")
+            self.file_list = []
+            self.table.setRowCount(0)
+            self.count_label.setText("0")
+            self.selected_path_label.setText("路径可能包含循环引用")
+        except Exception as e:
+            print(f"[扫描显示] 错误: {e}")
+            self.file_list = []
+            self.table.setRowCount(0)
+            self.count_label.setText("0")
+
+    def apply_file_list(self, file_list: list):
+        """应用扫描结果并刷新显示，用于同步扫描和后台扫描回填。"""
+        self.file_list = file_list
         self.display_files()
         self.count_label.setText(str(len(self.file_list)))
         self.selected_path_label.setText("")
         self._last_selected_row = -1
+
+    def apply_scan_result(self, path, file_list: list):
+        """应用后台扫描结果，保持路径栏和标题一致。"""
+        path_str = str(path) if isinstance(path, Path) else path
+        self.current_path = path_str
+
+        path_str_normalized = path_str.replace("\\", "/").rstrip("/")
+        folder_name = path_str_normalized.split("/")[-1] if path_str_normalized else ""
+
+        self.title_label.setText(f"{self.title} - {folder_name}")
+        self.path_edit.setText(path_str)
+        self.path_edit.setToolTip(path_str)
+        self.apply_file_list(file_list)
+        self.global_crop_bbox = None
 
     def display_files(self):
         self.table.setRowCount(len(self.file_list))
@@ -168,9 +268,16 @@ class FileListPanel(QWidget):
             time_item = QTableWidgetItem(time_str)
             self.table.setItem(row, 1, time_item)
 
-    def get_display_path(self, file_path: Path) -> str:
-        """获取显示路径，从数字ID层级开始"""
-        parts = list(file_path.parts)
+    def get_display_path(self, file_path) -> str:
+        """获取显示路径，从数字ID层级开始
+
+        Args:
+            file_path: 文件路径（可以是 Path 或字符串）
+        """
+        # 转换为字符串处理
+        path_str = str(file_path) if isinstance(file_path, Path) else file_path
+        parts = path_str.replace("\\", "/").split("/")
+
         # 从前往后找数字ID层级（如503080）
         start_index = 0
         for i, part in enumerate(parts):
@@ -178,9 +285,10 @@ class FileListPanel(QWidget):
             if match(r'^\d{5,6}$', part):
                 start_index = i
                 break
+
         # 从数字ID开始截取路径
         result_parts = parts[start_index:]
-        return '/'.join(result_parts) if result_parts else file_path.name
+        return '/'.join(result_parts) if result_parts else os.path.basename(path_str)
 
     def highlight_row(self, row: int):
         """高亮选中行"""
@@ -212,8 +320,8 @@ class FileListPanel(QWidget):
                 # 更新底部路径显示
                 display_path = self.get_display_path(file_info.path)
                 self.selected_path_label.setText(display_path)
-                # 发送完整路径信号（用于预览）
-                self.file_selected.emit(file_info.path)
+                # 发送完整路径信号（用于预览）- 使用字符串避免递归
+                self.file_selected.emit(file_info.get_path_str())
                 # 发送相对路径信号（用于同步匹配）
                 self.file_selected_relative.emit(file_info.relative_path)
 
@@ -238,11 +346,11 @@ class FileListPanel(QWidget):
                 self.scrollToRow(row)
                 return
 
-    def get_file_path_by_relative(self, relative_path: str) -> Path | None:
+    def get_file_path_by_relative(self, relative_path: str) -> str | None:
         """根据相对路径获取完整路径"""
         for file_info in self.file_list:
             if file_info.relative_path == relative_path or file_info.name == relative_path:
-                return file_info.path
+                return file_info.get_path_str()
         return None
 
     def scrollToRow(self, row: int):
@@ -258,7 +366,7 @@ class FileListPanel(QWidget):
             row = selected[0].row()
             self.scrollToRow(row)
 
-    def get_file_path_by_name(self, filename: str) -> Path | None:
+    def get_file_path_by_name(self, filename: str) -> str | None:
         """根据文件名获取完整路径（兼容旧接口）"""
         return self.get_file_path_by_relative(filename)
 

@@ -60,17 +60,17 @@ class FileComparator:
         Returns:
             FileStatus
         """
-        # 1. 文件大小不同 → 已修改
+        # 1. SVN 修改时间较新 → SVN 较新，优先标记为风险项
+        if svn_info.modify_time > local_info.modify_time:
+            return FileStatus.SVN_NEWER
+
+        # 2. 文件大小不同 → 已修改
         if local_info.size != svn_info.size:
             return FileStatus.MODIFIED
 
-        # 2. 修改时间不同（本地较新） → 已修改
+        # 3. 修改时间不同（本地较新） → 已修改
         if local_info.modify_time > svn_info.modify_time:
             return FileStatus.MODIFIED
-
-        # 3. SVN 修改时间较新 → SVN 较新
-        if svn_info.modify_time > local_info.modify_time:
-            return FileStatus.SVN_NEWER
 
         # 4. 图片文件：像素尺寸不同 → 已修改
         if local_info.is_image and svn_info.is_image:

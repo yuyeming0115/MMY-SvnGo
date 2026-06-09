@@ -77,6 +77,12 @@ Windows 下执行：
 python build.py
 ```
 
+也可以使用一键脚本：
+
+```powershell
+.\build.bat
+```
+
 仅打包、不复制到发布目录：
 
 ```powershell
@@ -93,6 +99,18 @@ python build.py --version 0.1.1
 
 ```text
 release/v{版本号}/
+```
+
+Windows 发布文件命名格式：
+
+```text
+MMY_SvnGo_v{版本号}_{时间戳}.exe
+```
+
+macOS 可使用：
+
+```bash
+./build.sh
 ```
 
 ## 基本使用流程

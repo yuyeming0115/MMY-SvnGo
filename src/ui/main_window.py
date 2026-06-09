@@ -3,6 +3,7 @@
 """
 
 import os
+import time
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -155,6 +156,8 @@ class MainWindow(QMainWindow):
         self.refresh_worker = None
         self.transfer_worker = None
         self.bbox_worker = None
+        self.last_auto_refresh_at = 0.0
+        self.auto_refresh_interval = 30.0
         self.last_comparison_result = {}
         self.pending_commit_msg = ""
         # SVN 模式相关属性
@@ -174,8 +177,13 @@ class MainWindow(QMainWindow):
         if state == Qt.ApplicationState.ApplicationActive:
             if self._was_inactive and (self.local_panel.current_path or self.svn_panel.current_path):
                 print("[窗口] 从其他应用切回来，自动刷新")
-                update_svn = self.svn_mode and bool(self.svn_panel.current_path)
-                self.start_refresh(update_svn=update_svn)
+                now = time.monotonic()
+                if now - self.last_auto_refresh_at < self.auto_refresh_interval:
+                    self.set_workflow_status("刚刚刷新过，已跳过本次自动刷新。")
+                else:
+                    self.last_auto_refresh_at = now
+                    update_svn = self.svn_mode and bool(self.svn_panel.current_path)
+                    self.start_refresh(update_svn=update_svn)
             self._was_inactive = False
         elif state == Qt.ApplicationState.ApplicationInactive:
             self._was_inactive = True

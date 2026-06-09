@@ -120,6 +120,28 @@ class TransferWorker(QThread):
         })
 
 
+class BBoxWorker(QThread):
+    """后台统一裁剪边界计算任务。"""
+
+    status_changed = pyqtSignal(str)
+    result_ready = pyqtSignal(str, object)
+    failed = pyqtSignal(str, str)
+
+    def __init__(self, side: str, folder_path):
+        super().__init__()
+        self.side = side
+        self.folder_path = str(folder_path) if folder_path else ""
+        self.scanner = FileScanner()
+
+    def run(self):
+        try:
+            self.status_changed.emit("正在后台计算统一裁剪范围...")
+            bbox = self.scanner.compute_global_bbox(self.folder_path)
+            self.result_ready.emit(self.side, bbox)
+        except Exception as e:
+            self.failed.emit(self.side, str(e))
+
+
 class MainWindow(QMainWindow):
     """主窗口"""
 
@@ -132,6 +154,7 @@ class MainWindow(QMainWindow):
         self._was_inactive = False
         self.refresh_worker = None
         self.transfer_worker = None
+        self.bbox_worker = None
         self.last_comparison_result = {}
         self.pending_commit_msg = ""
         # SVN 模式相关属性
@@ -472,20 +495,56 @@ class MainWindow(QMainWindow):
 
     def on_local_unify_request(self):
         """本地预览请求计算全局边界框"""
-        print("[统一裁剪] 计算本地全局边界框...")
-        bbox = self.local_panel.compute_global_bbox_async()
-        if bbox:
-            self.local_preview.set_global_bbox(bbox)
-            # 更新状态提示
-            self.local_preview.btn_unify.setText(f"统一({bbox[2]-bbox[0]}x{bbox[3]-bbox[1]})")
+        self.start_bbox_compute("local")
 
     def on_svn_unify_request(self):
         """SVN预览请求计算全局边界框"""
-        print("[统一裁剪] 计算 SVN 全局边界框...")
-        bbox = self.svn_panel.compute_global_bbox_async()
+        self.start_bbox_compute("svn")
+
+    def start_bbox_compute(self, side: str):
+        """启动后台统一裁剪计算。"""
+        if self.bbox_worker and self.bbox_worker.isRunning():
+            self.set_workflow_status("统一裁剪计算正在进行中...")
+            return
+
+        panel = self.local_panel if side == "local" else self.svn_panel
+        preview = self.local_preview if side == "local" else self.svn_preview
+        if not panel.current_path:
+            QMessageBox.warning(self, "提示", "请先拖入目录")
+            return
+
+        preview.btn_unify.setEnabled(False)
+        preview.btn_unify.setText("计算中")
+        print(f"[统一裁剪] 后台计算 {side} 全局边界框...")
+
+        self.bbox_worker = BBoxWorker(side, panel.current_path)
+        self.bbox_worker.status_changed.connect(self.set_workflow_status)
+        self.bbox_worker.result_ready.connect(self.on_bbox_finished)
+        self.bbox_worker.failed.connect(self.on_bbox_failed)
+        self.bbox_worker.start()
+
+    def on_bbox_finished(self, side: str, bbox):
+        """后台统一裁剪计算完成。"""
+        panel = self.local_panel if side == "local" else self.svn_panel
+        preview = self.local_preview if side == "local" else self.svn_preview
+
+        panel.global_crop_bbox = bbox
+        preview.set_global_bbox(bbox)
+        preview.btn_unify.setEnabled(True)
+
         if bbox:
-            self.svn_preview.set_global_bbox(bbox)
-            self.svn_preview.btn_unify.setText(f"统一({bbox[2]-bbox[0]}x{bbox[3]-bbox[1]})")
+            preview.btn_unify.setText(f"统一({bbox[2]-bbox[0]}x{bbox[3]-bbox[1]})")
+            self.set_workflow_status("统一裁剪范围已更新。")
+        else:
+            preview.btn_unify.setText("统一")
+            self.set_workflow_status("未找到可用的 PNG 透明边界。")
+
+    def on_bbox_failed(self, side: str, message: str):
+        """后台统一裁剪计算失败。"""
+        preview = self.local_preview if side == "local" else self.svn_preview
+        preview.btn_unify.setEnabled(True)
+        preview.btn_unify.setText("统一")
+        self.set_workflow_status(f"统一裁剪计算失败：{message}")
 
     # === 文件夹拖入处理 ===
 

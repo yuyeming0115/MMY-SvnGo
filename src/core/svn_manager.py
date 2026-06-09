@@ -126,7 +126,15 @@ class SVNManager:
 
         try:
             for file in files:
-                subprocess.run(["svn", "add", str(file)], capture_output=True, timeout=10)
+                result = subprocess.run(
+                    ["svn", "add", "--parents", str(file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0 and "already under version control" not in result.stderr:
+                    print(f"svn add 失败: {file} - {result.stderr.strip()}")
+                    return False
             return True
         except Exception as e:
             print(f"svn add 失败: {e}")

@@ -337,6 +337,16 @@ class MainWindow(QMainWindow):
         self.btn_setup_svn_parent.clicked.connect(self.set_svn_parent_path)
         workflow_layout.addWidget(self.btn_setup_svn_parent)
 
+        self.btn_choose_local = QPushButton("选择本地目录")
+        self.btn_choose_local.setStyleSheet(button_style)
+        self.btn_choose_local.clicked.connect(self.choose_local_folder)
+        workflow_layout.addWidget(self.btn_choose_local)
+
+        self.btn_check_svn_tools = QPushButton("检查 SVN 工具")
+        self.btn_check_svn_tools.setStyleSheet(button_style)
+        self.btn_check_svn_tools.clicked.connect(self.show_svn_tools_help)
+        workflow_layout.addWidget(self.btn_check_svn_tools)
+
         parent_layout.addWidget(workflow_bar)
 
     def create_list_area(self, parent_layout: QVBoxLayout):
@@ -412,6 +422,8 @@ class MainWindow(QMainWindow):
         self.btn_svn_dirs.setEnabled(not busy)
         self.btn_mode.setEnabled(not busy)
         self.btn_setup_svn_parent.setEnabled(not busy)
+        self.btn_choose_local.setEnabled(not busy)
+        self.btn_check_svn_tools.setEnabled(not busy)
         if message:
             self.set_workflow_status(message)
 
@@ -425,14 +437,22 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "workflow_status_label"):
             return
 
+        has_local = bool(self.local_panel.current_path)
+        has_svn = bool(self.svn_panel.current_path)
         needs_svn_parent = self.svn_mode and not self.svn_parent_path
-        self.btn_setup_svn_parent.setVisible(needs_svn_parent)
+        is_first_run = not self.history_manager.get_all() and not has_local and not has_svn
 
-        if needs_svn_parent:
+        self.btn_setup_svn_parent.setVisible(needs_svn_parent)
+        self.btn_choose_local.setVisible(not has_local)
+        self.btn_check_svn_tools.setVisible(is_first_run or needs_svn_parent)
+
+        if is_first_run and needs_svn_parent:
+            self.set_workflow_status("首次使用：先设置 SVN 父级目录，再选择或拖入本地目录开始对比。")
+        elif needs_svn_parent:
             self.set_workflow_status("SVN 模式：请先设置 SVN 父级目录，然后拖入本地文件夹。")
-        elif not self.local_panel.current_path:
-            self.set_workflow_status("准备就绪：拖入本地文件夹开始对比。")
-        elif self.svn_mode and not self.svn_panel.current_path:
+        elif not has_local:
+            self.set_workflow_status("准备就绪：选择或拖入本地文件夹开始对比。")
+        elif self.svn_mode and not has_svn:
             self.set_workflow_status("等待 SVN 目录：将自动匹配同名目录，或从 SVN目录 手动选择。")
         elif self.last_comparison_result:
             summary = self.comparator.get_status_summary(self.last_comparison_result)
@@ -750,6 +770,57 @@ class MainWindow(QMainWindow):
             """)
             print("[模式] 切换到常规模式")
         self.update_workflow_status()
+
+    def choose_local_folder(self):
+        """从文件选择器加载本地目录，作为拖拽之外的首次入口。"""
+        if self.svn_mode and not self.svn_parent_path:
+            self.update_workflow_status()
+            QMessageBox.information(
+                self,
+                "先设置 SVN 父级目录",
+                "当前处于 SVN 模式。\n请先设置 SVN 父级目录，之后选择本地目录时会自动匹配或创建右侧同名目录。"
+            )
+            return
+
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "选择本地目录",
+            str(Path.home())
+        )
+        if dir_path:
+            self.local_panel.load_folder(dir_path)
+            self.update_workflow_status()
+
+    def show_svn_tools_help(self):
+        """检查 SVN 工具状态并给出首次配置提示。"""
+        status = self.svn_manager.get_tool_status()
+        has_cli = status.get("svn_cli", False)
+        has_tortoise = status.get("tortoise", False)
+
+        if has_cli and has_tortoise:
+            QMessageBox.information(
+                self,
+                "SVN 工具可用",
+                "已检测到 svn 命令行和 TortoiseSVN。\n可以继续设置 SVN 父级目录并开始同步。"
+            )
+        elif has_cli:
+            QMessageBox.information(
+                self,
+                "SVN 命令行可用",
+                "已检测到 svn 命令行。\n如果希望使用图形化提交窗口，可以另外安装 TortoiseSVN。"
+            )
+        elif has_tortoise:
+            QMessageBox.warning(
+                self,
+                "建议补充 svn 命令行",
+                "已检测到 TortoiseSVN，但未检测到 svn 命令行。\n后台更新和自动加入新文件需要 svn 命令行，请确认安装时勾选 command line client tools。"
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "未检测到 SVN 工具",
+                "未检测到 svn 命令行或 TortoiseSVN。\n请先安装 SVN 客户端，并确保 svn.exe 已加入 PATH。"
+            )
 
     def set_svn_parent_path(self):
         """设置 SVN 父级目录"""

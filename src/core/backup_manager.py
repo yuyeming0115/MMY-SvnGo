@@ -4,6 +4,7 @@
 
 import zipfile
 import shutil
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -50,12 +51,13 @@ class BackupManager:
             id_match = re.match(r'^(\d+)', source_path.name)
             parent_folder = id_match.group(1) if id_match else source_path.name
 
-            for root, dirs, files in source_path.walk():
+            for root, dirs, files in os.walk(source_path):
+                root_path = Path(root)
                 # 过滤 .svn 目录
                 dirs[:] = [d for d in dirs if d != ".svn"]
 
                 for file in files:
-                    file_path = root / file
+                    file_path = root_path / file
                     # 计算相对路径，并添加父级 ID 文件夹
                     rel_path = file_path.relative_to(source_path)
                     zip_path_inside = Path(parent_folder) / rel_path

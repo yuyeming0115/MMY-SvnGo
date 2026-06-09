@@ -20,14 +20,15 @@ class FileStatus(Enum):
 @dataclass
 class FileInfo:
     """文件信息数据类"""
-    path: Path                 # 文件完整路径
-    name: str                  # 文件名
-    size: int                  # 文件大小（字节）
-    modify_time: datetime      # 修改时间
-    relative_path: str = ""    # 相对于扫描根目录的路径（用于同步匹配）
-    width: int = 0             # 图片宽度（像素）
-    height: int = 0            # 图片高度（像素）
-    is_image: bool = False     # 是否为图片文件
+    path: str | Path            # 文件完整路径（支持字符串避免递归）
+    name: str                   # 文件名
+    size: int                   # 文件大小（字节）
+    modify_time: datetime       # 修改时间
+    relative_path: str = ""     # 相对于扫描根目录的路径（用于同步匹配）
+    width: int = 0              # 图片宽度（像素）
+    height: int = 0             # 图片高度（像素）
+    is_image: bool = False      # 是否为图片文件
+    crop_bbox: tuple = ()       # 图片裁剪边界框 (left, top, right, bottom)，空表示未计算
 
     @property
     def size_display(self) -> str:
@@ -45,6 +46,10 @@ class FileInfo:
         if self.is_image and self.width > 0:
             return f"{self.width} x {self.height}"
         return ""
+
+    def get_path_str(self) -> str:
+        """获取路径字符串"""
+        return str(self.path) if isinstance(self.path, Path) else self.path
 
 
 @dataclass

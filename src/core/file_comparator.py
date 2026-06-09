@@ -28,25 +28,25 @@ class FileComparator:
         """
         result = {}
 
-        # 建立文件名映射（使用相对路径名）
-        local_map = {f.name: f for f in local_files}
-        svn_map = {f.name: f for f in svn_files}
+        # 建立文件名映射（使用相对路径名，避免同名文件覆盖）
+        local_map = {f.relative_path: f for f in local_files}
+        svn_map = {f.relative_path: f for f in svn_files}
 
         # 检查本地文件
-        for filename, local_info in local_map.items():
-            if filename not in svn_map:
+        for rel_path, local_info in local_map.items():
+            if rel_path not in svn_map:
                 # 仅存在于本地：新文件
-                result[filename] = (local_info, FileStatus.NEW_FILE)
+                result[rel_path] = (local_info, FileStatus.NEW_FILE)
             else:
-                svn_info = svn_map[filename]
+                svn_info = svn_map[rel_path]
                 status = self.compare_file(local_info, svn_info)
-                result[filename] = (local_info, status)
+                result[rel_path] = (local_info, status)
 
         # 检查 SVN 中独有的文件（可能被本地删除）
-        for filename, svn_info in svn_map.items():
-            if filename not in local_map:
+        for rel_path, svn_info in svn_map.items():
+            if rel_path not in local_map:
                 # 仅存在于 SVN：SVN 较新或本地已删除
-                result[filename] = (svn_info, FileStatus.SVN_NEWER)
+                result[rel_path] = (svn_info, FileStatus.SVN_NEWER)
 
         return result
 
@@ -60,17 +60,17 @@ class FileComparator:
         Returns:
             FileStatus
         """
-        # 1. 文件大小不同 → 已修改
+        # 1. SVN 修改时间较新 → SVN 较新，优先标记为风险项
+        if svn_info.modify_time > local_info.modify_time:
+            return FileStatus.SVN_NEWER
+
+        # 2. 文件大小不同 → 已修改
         if local_info.size != svn_info.size:
             return FileStatus.MODIFIED
 
-        # 2. 修改时间不同（本地较新） → 已修改
+        # 3. 修改时间不同（本地较新） → 已修改
         if local_info.modify_time > svn_info.modify_time:
             return FileStatus.MODIFIED
-
-        # 3. SVN 修改时间较新 → SVN 较新
-        if svn_info.modify_time > local_info.modify_time:
-            return FileStatus.SVN_NEWER
 
         # 4. 图片文件：像素尺寸不同 → 已修改
         if local_info.is_image and svn_info.is_image:

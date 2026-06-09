@@ -2,11 +2,12 @@
 预览图面板 - 支持自动裁剪透明像素最大化显示
 """
 
+import os
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter
 
 from PIL import Image
@@ -16,44 +17,57 @@ class PreviewPanel(QWidget):
     """预览图面板"""
 
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    _checkerboard_tiles = {}
+
+    # 信号：请求计算全局边界框
+    request_global_bbox = pyqtSignal()
 
     def __init__(self, title: str):
         super().__init__()
         self.title = title
-        self.current_image_path: Path | None = None
+        self.current_image_path: str | None = None  # 改用字符串避免 Path 递归
         self.show_checkerboard = False
         self.auto_crop = True  # 默认启用自动裁剪透明像素
+        self.global_bbox: tuple | None = None  # 全局裁剪边界框
         self.init_ui()
 
     def init_ui(self):
         """初始化 UI"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(5, 2, 5, 2)
+        layout.setSpacing(3)
 
-        # 标题栏
+        # 标题栏（紧凑）
         title_bar = QWidget()
+        title_bar.setMaximumHeight(24)
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(5)
 
         title_label = QLabel(self.title)
         title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         title_layout.addWidget(title_label)
 
-        # 棋盘格切换按钮
-        self.btn_checkerboard = QPushButton("棋盘格")
-        self.btn_checkerboard.setToolTip("切换棋盘格背景显示透明区域")
-        self.btn_checkerboard.setMaximumWidth(60)
+        # 棋盘格切换按钮（紧凑）
+        self.btn_checkerboard = QPushButton("棋盘")
+        self.btn_checkerboard.setToolTip("切换棋盘格背景")
+        self.btn_checkerboard.setFixedSize(45, 20)
         self.btn_checkerboard.setCheckable(True)
         title_layout.addWidget(self.btn_checkerboard)
 
-        # 自动裁剪按钮
+        # 自动裁剪按钮（紧凑）
         self.btn_auto_crop = QPushButton("裁剪")
-        self.btn_auto_crop.setToolTip("自动裁剪透明边缘，最大化显示有效像素")
-        self.btn_auto_crop.setMaximumWidth(50)
+        self.btn_auto_crop.setToolTip("裁剪透明边缘")
+        self.btn_auto_crop.setFixedSize(40, 20)
         self.btn_auto_crop.setCheckable(True)
         self.btn_auto_crop.setChecked(True)
         title_layout.addWidget(self.btn_auto_crop)
+
+        # 统一裁剪按钮
+        self.btn_unify = QPushButton("统一")
+        self.btn_unify.setToolTip("计算当前文件夹所有PNG的统一裁剪范围")
+        self.btn_unify.setFixedSize(40, 20)
+        title_layout.addWidget(self.btn_unify)
 
         title_layout.addStretch()
 
@@ -62,7 +76,8 @@ class PreviewPanel(QWidget):
         # 图片显示区域
         self.image_frame = QFrame()
         self.image_frame.setStyleSheet("QFrame { background-color: #2a2a2a; }")
-        self.image_frame.setMinimumHeight(180)
+        self.image_frame.setMinimumHeight(200)
+        self.image_frame.setMinimumWidth(200)  # 设置最小宽度，使其接近方形
 
         image_layout = QVBoxLayout(self.image_frame)
         image_layout.setContentsMargins(0, 0, 0, 0)
@@ -78,6 +93,7 @@ class PreviewPanel(QWidget):
         # 连接信号
         self.btn_checkerboard.clicked.connect(self.toggle_checkerboard)
         self.btn_auto_crop.clicked.connect(self.toggle_auto_crop)
+        self.btn_unify.clicked.connect(self.on_unify_clicked)
 
     def toggle_checkerboard(self):
         """切换棋盘格背景"""
@@ -91,18 +107,42 @@ class PreviewPanel(QWidget):
         if self.current_image_path:
             self.load_image(self.current_image_path)
 
-    def load_image(self, path: Path):
-        """加载图片"""
-        self.current_image_path = path
+    def on_unify_clicked(self):
+        """点击统一按钮，请求计算全局边界框"""
+        self.request_global_bbox.emit()
+
+    def set_global_bbox(self, bbox: tuple | None):
+        """设置全局裁剪边界框"""
+        self.global_bbox = bbox
+        # 如果当前有图片，重新加载以应用新的边界框
+        if self.current_image_path:
+            self.load_image(self.current_image_path)
+
+    def load_image(self, path):
+        """加载图片
+
+        Args:
+            path: 图片路径（可以是 Path 或字符串）
+        """
+        # 转换为字符串避免 Path 递归问题
+        path_str = str(path) if isinstance(path, Path) else path
+        self.current_image_path = path_str
 
         # 检查文件大小
-        if path.stat().st_size > self.MAX_FILE_SIZE:
+        try:
+            file_size = os.path.getsize(path_str)
+        except Exception as e:
+            self.image_label.setText(f"无法访问文件: {e}")
+            self.image_label.setPixmap(QPixmap())
+            return
+
+        if file_size > self.MAX_FILE_SIZE:
             self.image_label.setText(f"文件过大（>{self.MAX_FILE_SIZE // (1024*1024)}MB）")
             self.image_label.setPixmap(QPixmap())
             return
 
         # 检查文件格式
-        ext = path.suffix.lower()
+        ext = os.path.splitext(path_str)[1].lower()
         if ext not in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tga"):
             self.image_label.setText("不支持的格式")
             self.image_label.setPixmap(QPixmap())
@@ -110,14 +150,25 @@ class PreviewPanel(QWidget):
 
         try:
             # 使用 Pillow 加载图片
-            with Image.open(path) as img:
+            with Image.open(path_str) as img:
                 # 转换为 RGBA 模式（确保透明通道存在）
                 if img.mode != "RGBA":
                     img = img.convert("RGBA")
 
                 # 如果启用自动裁剪，裁剪透明边缘
                 if self.auto_crop and ext == ".png":
-                    img = self.crop_transparent(img)
+                    # 优先使用全局边界框
+                    if self.global_bbox:
+                        # 检查全局边界框是否在图片范围内
+                        left, top, right, bottom = self.global_bbox
+                        if left < right and top < bottom and right <= img.width and bottom <= img.height:
+                            img = img.crop((left, top, right, bottom))
+                        else:
+                            # 全局边界框无效或超出范围，回退到单独裁剪
+                            img = self.crop_transparent(img)
+                    else:
+                        # 没有全局边界框，单独裁剪
+                        img = self.crop_transparent(img)
 
                 # 如果启用棋盘格，合成棋盘格背景
                 if self.show_checkerboard:
@@ -153,20 +204,31 @@ class PreviewPanel(QWidget):
         """使用 Pillow 添加棋盘格背景"""
         width, height = img.size
         checker_size = 10
+        tile = self.get_checkerboard_tile(checker_size)
 
-        # 创建棋盘格背景
         background = Image.new("RGBA", (width, height), (200, 200, 200, 255))
-
-        for x in range(0, width, checker_size):
-            for y in range(0, height, checker_size):
-                color = (200, 200, 200, 255) if ((x // checker_size) + (y // checker_size)) % 2 == 0 else (150, 150, 150, 255)
-                for dx in range(min(checker_size, width - x)):
-                    for dy in range(min(checker_size, height - y)):
-                        background.putpixel((x + dx, y + dy), color)
+        for x in range(0, width, tile.width):
+            for y in range(0, height, tile.height):
+                background.paste(tile, (x, y))
 
         # 合成图片（棋盘格作为背景，原图叠加在上面）
         composite = Image.alpha_composite(background, img)
         return composite
+
+    def get_checkerboard_tile(self, checker_size: int) -> Image.Image:
+        """获取缓存的棋盘格小纹理。"""
+        if checker_size in self._checkerboard_tiles:
+            return self._checkerboard_tiles[checker_size]
+
+        light = Image.new("RGBA", (checker_size, checker_size), (200, 200, 200, 255))
+        dark = Image.new("RGBA", (checker_size, checker_size), (150, 150, 150, 255))
+        tile = Image.new("RGBA", (checker_size * 2, checker_size * 2), (200, 200, 200, 255))
+        tile.paste(light, (0, 0))
+        tile.paste(dark, (checker_size, 0))
+        tile.paste(dark, (0, checker_size))
+        tile.paste(light, (checker_size, checker_size))
+        self._checkerboard_tiles[checker_size] = tile
+        return tile
 
     def scale_pixmap(self, pixmap: QPixmap) -> QPixmap:
         """缩放图片（保持比例，最大化显示）"""
